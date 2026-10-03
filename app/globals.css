@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #fafaf8;
+  --color-ink: #0b0b0c;
+  --color-accent: #b8925a;
+  --color-mute: #6b6b66;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+html { background: var(--color-paper); }
+body { -webkit-tap-highlight-color: transparent; }
+::selection { background: var(--color-accent); color: #fff; }
+
+/* Lenis */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: hidden; }
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; border-radius: 6px; }
+
+/* Sliders del simulador */
+.range {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 2px; border-radius: 2px; outline: none;
+  background: linear-gradient(to right, var(--color-accent) var(--p, 50%), rgb(255 255 255 / 0.18) var(--p, 50%));
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; cursor: grab;
+  border: 0; box-shadow: 0 0 0 6px rgb(184 146 90 / 0.25); transition: box-shadow .3s;
+}
+.range::-webkit-slider-thumb:hover { box-shadow: 0 0 0 10px rgb(184 146 90 / 0.25); }
+.range::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 0; cursor: grab; box-shadow: 0 0 0 6px rgb(184 146 90 / 0.25); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
