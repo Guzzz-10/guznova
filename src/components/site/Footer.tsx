@@ -88,7 +88,7 @@ export function Footer({ settings }: { settings: Settings }) {
       </div>
 
       <div className="border-t border-white/5">
-        <div className="container flex flex-col gap-2 py-6 pb-24 text-xs text-ink-500 sm:flex-row sm:items-center sm:justify-between sm:pb-6">
+        <div className="container flex flex-col gap-2 py-6 pb-24 text-xs text-ink-400 sm:flex-row sm:items-center sm:justify-between sm:pb-6">
           <p>
             © {year} {settings.businessName}. Todos los derechos reservados.
           </p>

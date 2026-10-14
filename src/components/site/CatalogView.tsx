@@ -445,13 +445,13 @@ function MobileDrawer({
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 320, damping: 34 }}
           >
-            <div className="flex items-center justify-between px-5 pb-2 pt-4">
-              <span className="mx-auto h-1.5 w-12 rounded-full bg-white/15" aria-hidden />
-              <button type="button" onClick={onClose} className="absolute right-4 top-3 grid h-10 w-10 place-items-center rounded-full text-ink-300 hover:bg-white/5" aria-label="Cerrar filtros">
+            <div className="relative flex h-12 shrink-0 items-center justify-center border-b border-white/5">
+              <span className="h-1.5 w-12 rounded-full bg-white/15" aria-hidden />
+              <button type="button" onClick={onClose} className="absolute right-3 top-1 grid h-10 w-10 place-items-center rounded-full text-ink-300 hover:bg-white/5" aria-label="Cerrar filtros">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="overflow-y-auto px-5 pb-4">{children}</div>
+            <div className="overflow-y-auto px-5 pb-4 pt-4">{children}</div>
             <div className="border-t border-white/10 p-4">
               <button type="button" onClick={onClose} className="btn-primary w-full !py-3.5 text-base">
                 {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}

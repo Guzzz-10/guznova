@@ -170,7 +170,7 @@ export default async function CarPage({ params }: Props) {
                 <InterestButton href={href} sold={sold} className="w-full" />
                 <ShareButton url={url} title={`${title} — ${formatPrice(car.price)}`} />
               </div>
-              <p className="mt-4 text-xs leading-relaxed text-ink-500">
+              <p className="mt-4 text-xs leading-relaxed text-ink-400">
                 Precio y disponibilidad sujetos a confirmación. Las fotos son ilustrativas. Ver{" "}
                 <Link href="/terminos" className="underline hover:text-ink-300">
                   términos y condiciones

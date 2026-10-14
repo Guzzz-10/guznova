@@ -28,7 +28,7 @@ export function CarCard({ car, priority = false }: { car: CarCardData; priority?
             )}
           />
         ) : (
-          <div className="grid h-full place-items-center text-sm text-ink-500">Sin fotos</div>
+          <div className="grid h-full place-items-center text-sm text-ink-400">Sin fotos</div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-ink-950/70 via-transparent to-transparent" />
         <div className="absolute left-3 top-3 flex gap-2">
@@ -71,7 +71,7 @@ export function CarCard({ car, priority = false }: { car: CarCardData; priority?
 
         <div className="mt-auto pt-5" />
         <div className="flex items-end justify-between border-t border-white/5 pt-4">
-          <p className={cn("font-display text-2xl font-bold", sold ? "text-ink-500 line-through decoration-1" : "text-white")}>
+          <p className={cn("font-display text-2xl font-bold", sold ? "text-ink-400 line-through decoration-1" : "text-white")}>
             {formatPrice(car.price)}
           </p>
           <span className="text-xs font-medium text-nova-400 opacity-0 transition group-hover:opacity-100">Ver detalles</span>

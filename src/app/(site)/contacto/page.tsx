@@ -34,7 +34,7 @@ export default async function ContactPage() {
       <section className="pb-24">
         <div className="container grid gap-10 lg:grid-cols-[1fr_1.2fr]">
           <div className="space-y-6">
-            <Stagger className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <Stagger className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
               {items.map(({ Icon, title, value, href, external, accent }) => {
                 const content = (
                   <>

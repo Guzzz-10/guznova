@@ -20,7 +20,7 @@ export function ReviewCard({ review }: { review: { name: string; rating: number;
         </span>
         <span>
           <span className="block font-semibold text-white">{review.name}</span>
-          <span className="block text-xs text-ink-500">{formatDate(review.createdAt)}</span>
+          <span className="block text-xs text-ink-400">{formatDate(review.createdAt)}</span>
         </span>
       </figcaption>
     </figure>

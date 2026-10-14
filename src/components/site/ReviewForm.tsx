@@ -129,7 +129,7 @@ export function ReviewForm() {
         />
         <div className="mt-1 flex justify-between gap-3 text-xs">
           <FieldError id="r-comment-err" message={errors.comment} />
-          <span id="r-comment-help" className="ml-auto text-ink-500">
+          <span id="r-comment-help" className="ml-auto text-ink-400">
             {comment.length}/{REVIEW_LIMITS.comment[1]}
           </span>
         </div>

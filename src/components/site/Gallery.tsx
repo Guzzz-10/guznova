@@ -30,7 +30,7 @@ export function Gallery({ images, title, sold = false }: { images: Img[]; title:
   };
 
   if (count === 0) {
-    return <div className="card-surface grid aspect-[16/10] place-items-center text-ink-500">Sin fotos por el momento</div>;
+    return <div className="card-surface grid aspect-[16/10] place-items-center text-ink-400">Sin fotos por el momento</div>;
   }
   const current = images[index];
 
@@ -186,7 +186,7 @@ function Lightbox({
           role="dialog"
           aria-modal="true"
           aria-label={`Fotos de ${title}`}
-          className="fixed inset-0 z-[60] flex flex-col bg-black/95"
+          className="fixed inset-0 z-[60] flex flex-col bg-black"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -271,7 +271,7 @@ function Lightbox({
               </>
             )}
           </div>
-          <p className="p-3 text-center text-xs text-ink-500">
+          <p className="p-3 text-center text-xs text-ink-400">
             {zoom ? "Mové el mouse o el dedo para recorrer la foto · tocá para alejar" : "Tocá la foto para hacer zoom · deslizá para cambiar de foto"}
           </p>
         </motion.div>

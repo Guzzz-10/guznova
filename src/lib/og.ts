@@ -1,14 +1,16 @@
 import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { UPLOADS_DIR } from "./storage";
 
 /** Devuelve la foto como data URL para usarla dentro de ImageResponse. */
 export async function imageForOg(url: string | undefined): Promise<string | null> {
   if (!url) return null;
   try {
     if (/^https?:\/\//.test(url)) return url; // storage en la nube
-    const full = path.join(process.cwd(), "public", url);
-    if (!full.startsWith(path.join(process.cwd(), "public"))) return null;
+    if (!url.startsWith("/uploads/")) return null;
+    const full = path.resolve(UPLOADS_DIR, url.slice("/uploads/".length));
+    if (!full.startsWith(UPLOADS_DIR + path.sep)) return null;
     const data = await fs.readFile(full);
     const ext = path.extname(full).toLowerCase();
     const mime = ext === ".png" ? "image/png" : "image/jpeg";

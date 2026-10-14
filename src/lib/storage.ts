@@ -19,7 +19,9 @@ export interface StorageDriver {
   remove(url: string): Promise<void>;
 }
 
-export const UPLOADS_DIR = path.join(process.cwd(), "public", "uploads");
+// Carpeta donde se guardan las fotos. Por defecto public/uploads; en un hosting con
+// disco persistente se puede apuntar a otra ruta con la variable UPLOADS_DIR.
+export const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR || path.join(process.cwd(), "public", "uploads"));
 const PUBLIC_PREFIX = "/uploads/";
 
 const localDriver: StorageDriver = {

@@ -358,7 +358,8 @@ async function main() {
   await prisma.setting.deleteMany();
   await prisma.adminUser.deleteMany();
 
-  const demoDir = path.join(process.cwd(), "public", "uploads", "demo");
+  const uploadsDir = path.resolve(process.env.UPLOADS_DIR || path.join(process.cwd(), "public", "uploads"));
+  const demoDir = path.join(uploadsDir, "demo");
   await fs.rm(demoDir, { recursive: true, force: true });
   await fs.mkdir(demoDir, { recursive: true });
 

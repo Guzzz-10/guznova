@@ -6,9 +6,6 @@ const nextConfig: NextConfig = {
     // Si en el futuro se usa un storage en la nube (S3, Cloudinary, etc.),
     // agregar aquí su dominio en remotePatterns.
     remotePatterns: [],
-    dangerouslyAllowSVG: true,
-    contentDispositionType: "attachment",
-    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   async rewrites() {
     return {
