@@ -10,6 +10,14 @@ const nextConfig: NextConfig = {
     contentDispositionType: "attachment",
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
+  async rewrites() {
+    return {
+      beforeFiles: [],
+      afterFiles: [],
+      // Si la foto no existe como archivo estático (subida después del build), la sirve la API.
+      fallback: [{ source: "/uploads/:path*", destination: "/api/uploads/:path*" }],
+    };
+  },
   experimental: {
     serverActions: { bodySizeLimit: "25mb" },
   },
