@@ -1,0 +1,79 @@
+// AutoNova — modelo de datos
+// Para migrar a PostgreSQL: cambiar provider a "postgresql" y DATABASE_URL en .env.
+// No se usan enums ni tipos específicos de SQLite, así que el esquema es portable.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Car {
+  id           String     @id @default(cuid())
+  slug         String     @unique
+  brand        String
+  model        String
+  version      String     @default("")
+  year         Int
+  price        Int // en USD
+  km           Int
+  fuel         String // NAFTA | DIESEL | HIBRIDO | ELECTRICO
+  transmission String // MANUAL | AUTOMATICA
+  bodyType     String     @default("") // Hatchback, Sedán, Pickup, SUV...
+  color        String
+  engine       String
+  doors        Int        @default(5)
+  description  String
+  equipment    String     @default("") // un ítem por línea
+  status       String     @default("DISPONIBLE") // DISPONIBLE | RESERVADO | VENDIDO
+  featured     Boolean    @default(false)
+  soldAt       DateTime?
+  images       CarImage[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([status])
+  @@index([brand])
+  @@index([featured])
+}
+
+model CarImage {
+  id       String @id @default(cuid())
+  carId    String
+  car      Car    @relation(fields: [carId], references: [id], onDelete: Cascade)
+  url      String
+  alt      String @default("")
+  // La imagen con position 0 es la portada.
+  position Int    @default(0)
+
+  @@index([carId, position])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  name      String
+  rating    Int
+  comment   String
+  status    String   @default("PENDIENTE") // PENDIENTE | APROBADA | OCULTA
+  ipHash    String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([status])
+}
+
+// Configuración editable del negocio (clave/valor)
+model Setting {
+  key   String @id
+  value String
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  name         String   @default("")
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
