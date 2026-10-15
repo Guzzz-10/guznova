@@ -8,24 +8,38 @@ Sitio web para una automotora de autos usados en Uruguay, con catálogo, fichas 
 
 ## 1. Instalación y ejecución
 
-**Requisitos:** Node.js 20 o superior (recomendado 22).
+### Requisito: Node.js (una sola vez)
+
+Descargá la versión **LTS** desde <https://nodejs.org>, instalala con las opciones por defecto y **reiniciá la computadora**.
+
+### Opción fácil: doble clic
+
+1. Descargá el proyecto (en GitHub: botón **`<> Code` → Download ZIP**) y **descomprimilo** (no lo abras desde adentro del ZIP).
+2. Hacé doble clic en:
+   - **Windows:** `iniciar.bat`
+   - **Mac:** `iniciar.command` (la primera vez: clic derecho → **Abrir** → **Abrir**, porque macOS bloquea los archivos descargados)
+3. La primera vez instala todo y carga los datos de demo (tarda unos minutos). Después se abre el navegador solo.
+
+**No cierres la ventana negra** mientras usás el sitio: si la cerrás, el sitio se apaga y el navegador muestra *“localhost ha rechazado la conexión”*.
+
+### Opción con la terminal
 
 ```bash
-# 1) Instalar dependencias
 npm install
-
-# 2) Crear el archivo de configuración
-cp .env.example .env
-
-# 3) Crear la base de datos y cargar los datos de demo
-#    (10 autos con fotos, 5 reseñas y el usuario admin)
-npm run setup
-
-# 4) Levantar el sitio en modo desarrollo
 npm run dev
 ```
 
-Abrí <http://localhost:3000> para ver el sitio y <http://localhost:3000/admin> para el panel.
+La primera vez, `npm run dev` crea solo el archivo `.env`, la base de datos y los datos de demo (10 autos con fotos, 5 reseñas y el usuario admin).
+
+Abrí <http://localhost:3000> para ver el sitio y <http://localhost:3000/admin> para el panel. Si en la terminal aparece otro puerto (por ejemplo `3001`, porque el 3000 está ocupado), usá ese.
+
+### Si el navegador dice “localhost ha rechazado la conexión”
+
+Significa que el sitio **no está corriendo** en tu computadora. Revisá que:
+
+- La ventana negra (o la terminal con `npm run dev`) siga abierta y diga **`Ready`**.
+- No haya un error en esa ventana. Si lo hay, copialo para revisarlo.
+- Estés entrando a la dirección que muestra la terminal (normalmente `http://localhost:3000`).
 
 ### Modo producción (local)
 
@@ -40,7 +54,7 @@ npm start
 | --- | --- |
 | `npm run dev` | Sitio en modo desarrollo (se recarga solo al editar). |
 | `npm run build` / `npm start` | Compila y levanta la versión de producción. |
-| `npm run setup` | Crea la base de datos y carga los datos de demo. |
+| `npm run setup` | Crea la base de datos y carga los datos de demo (lo hace solo `npm run dev` la primera vez). |
 | `npm run db:reset` | **Borra todo** y vuelve a cargar los datos de demo. |
 | `npm run lint` | Chequeo de tipos de TypeScript. |
 

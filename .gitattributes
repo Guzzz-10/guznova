@@ -1,0 +1,4 @@
+# Los lanzadores conservan sus finales de línea en cualquier sistema (y en el ZIP de GitHub)
+*.bat -text
+*.command text eol=lf
+*.sh text eol=lf
