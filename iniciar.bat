@@ -30,7 +30,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-node -e "process.exit(Number(process.versions.node.split('.')[0]) < 20 ? 1 : 0)"
+node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>20||(a===20&&b>=9)?0:1)"
 if errorlevel 1 (
   echo.
   echo  [!] Tu version de Node.js es muy vieja. Instala la version LTS desde

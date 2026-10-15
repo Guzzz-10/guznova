@@ -21,7 +21,7 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! node -e "process.exit(Number(process.versions.node.split('.')[0]) < 20 ? 1 : 0)"; then
+if ! node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>20||(a===20&&b>=9)?0:1)"; then
   echo
   echo " [!] Tu versión de Node.js es muy vieja. Instalá la versión LTS desde"
   echo "     https://nodejs.org y volvé a abrir este archivo."

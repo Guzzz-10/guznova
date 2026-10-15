@@ -8,10 +8,14 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "tsc --noEmit",
+    "predb:push": "node scripts/preparar.mjs --solo-env",
     "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma db push && tsx prisma/seed.ts",
-    "setup": "prisma generate && prisma db push && tsx prisma/seed.ts",
+    "predb:seed": "node scripts/preparar.mjs --solo-env",
+    "db:seed": "prisma db seed",
+    "predb:reset": "node scripts/preparar.mjs --solo-env",
+    "db:reset": "prisma db push && prisma db seed",
+    "presetup": "node scripts/preparar.mjs --solo-env",
+    "setup": "prisma generate && prisma db push && prisma db seed",
     "postinstall": "prisma generate"
   },
   "dependencies": {

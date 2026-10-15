@@ -3,6 +3,7 @@
 //   1. Verifica que la versión de Node.js sea compatible.
 //   2. Crea el archivo .env a partir de .env.example si todavía no existe.
 //   3. Si la base de datos SQLite no existe, la crea y carga los datos de demo.
+//      (Con --solo-env hace solo los pasos 1 y 2: lo usan setup y db:*.)
 //      Se arma con un nombre temporal y solo se renombra a su nombre final cuando
 //      terminó bien: si se corta a mitad de camino, la próxima vez se rehace.
 import { copyFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
@@ -17,10 +18,11 @@ function fail(message) {
   process.exit(1);
 }
 
-const major = Number(process.versions.node.split(".")[0]);
-if (major < 20) {
+// sharp (fotos) necesita Node 20.9 o superior.
+const [major, minor] = process.versions.node.split(".").map(Number);
+if (major < 20 || (major === 20 && minor < 9)) {
   fail(
-    `AutoNova necesita Node.js 20 o superior (tenés la ${process.versions.node}).\n` +
+    `AutoNova necesita Node.js 20.9 o superior (tenés la ${process.versions.node}).\n` +
       "  Descargá la versión LTS desde https://nodejs.org, instalala y reiniciá la computadora.",
   );
 }
@@ -31,9 +33,12 @@ if (!existsSync(envPath)) {
   console.log("✔ Se creó el archivo .env con la configuración por defecto.");
 }
 
+if (process.argv.includes("--solo-env")) process.exit(0);
+
+// Lee DATABASE_URL igual que dotenv (comillas, comentarios al final, `export`).
 const envFile = readFileSync(envPath, "utf8");
-const match = envFile.match(/^\s*DATABASE_URL\s*=\s*["']?([^"'\r\n]+)["']?/m);
-const dbUrl = (process.env.DATABASE_URL || match?.[1] || "").trim();
+const m = envFile.match(/^\s*(?:export\s+)?DATABASE_URL\s*=\s*(?:"([^"]*)"|'([^']*)'|([^#\r\n]*))/m);
+const dbUrl = (process.env.DATABASE_URL || m?.[1] || m?.[2] || m?.[3] || "").trim();
 
 // Solo aplica a SQLite (con PostgreSQL la base se prepara aparte, ver README).
 if (dbUrl.startsWith("file:")) {
@@ -71,13 +76,13 @@ if (dbUrl.startsWith("file:")) {
     // Misma ruta que la original (relativa o absoluta) con el sufijo temporal.
     const env = { ...process.env, DATABASE_URL: `file:${file}.preparando${query ? `?${query}` : ""}` };
 
-    const prisma = cli("prisma");
-    const steps = [];
-    // El cliente de Prisma se genera en `npm install`; si faltara, lo generamos.
-    if (!existsSync(path.join(root, "node_modules", ".prisma", "client", "index.js"))) {
-      steps.push([prisma, "generate"]);
-    }
-    steps.push([prisma, "db", "push", "--skip-generate"], [cli("tsx"), "prisma/seed.ts"]);
+    const steps = [
+      // `db push` también regenera el cliente de Prisma, ahora que .env ya existe.
+      [cli("prisma"), "db", "push"],
+      // --env-file: el seed recibe todo .env (usuario admin, UPLOADS_DIR…); la
+      // DATABASE_URL temporal del entorno tiene prioridad sobre la del archivo.
+      [`--env-file=${envPath}`, cli("tsx"), "prisma/seed.ts"],
+    ];
     for (const args of steps) {
       const result = spawnSync(process.execPath, args, { stdio: "inherit", cwd: root, env });
       if (result.status !== 0) {
