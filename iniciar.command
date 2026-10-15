@@ -6,8 +6,8 @@
 # ============================================================
 cd "$(dirname "$0")" || exit 1
 
-# Node instalado con el instalador oficial o con Homebrew
-export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+# Por si Terminal no cargó el PATH (Node del instalador oficial o de Homebrew).
+export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin"
 
 pausar() { echo; read -r -p "Presioná Enter para cerrar esta ventana..."; }
 
@@ -21,9 +21,19 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -d node_modules ]; then
+if ! node -e "process.exit(Number(process.versions.node.split('.')[0]) < 20 ? 1 : 0)"; then
+  echo
+  echo " [!] Tu versión de Node.js es muy vieja. Instalá la versión LTS desde"
+  echo "     https://nodejs.org y volvé a abrir este archivo."
+  pausar
+  exit 1
+fi
+
+# La marca .autonova-ok se crea solo cuando la instalación terminó bien.
+if [ ! -f node_modules/.autonova-ok ]; then
   echo
   echo " Instalando lo necesario. Solo la primera vez, puede tardar varios minutos..."
+  echo " No cierres esta ventana."
   echo
   if ! npm install; then
     echo
@@ -31,6 +41,7 @@ if [ ! -d node_modules ]; then
     pausar
     exit 1
   fi
+  touch node_modules/.autonova-ok
 fi
 
 echo
@@ -39,17 +50,19 @@ echo "   AutoNova se está iniciando..."
 echo "   Sitio:  http://localhost:3000"
 echo "   Panel:  http://localhost:3000/admin   (admin / autonova2024)"
 echo
-echo "   El navegador se abre solo en unos segundos."
+echo "   El navegador se abre solo cuando el sitio esté listo."
 echo "   NO cierres esta ventana mientras uses el sitio."
 echo "   Para apagarlo: Ctrl + C"
 echo " ============================================================"
 echo
 
-# Abre el navegador después de unos segundos, sin bloquear.
-( sleep 12; open "http://localhost:3000" ) &
+# Abre el navegador cuando el servidor responda, sin bloquear esta ventana.
+node scripts/abrir-navegador.mjs &
+ABRIR_PID=$!
 
 npm run dev
 
+kill "$ABRIR_PID" 2>/dev/null
 echo
 echo " El servidor se detuvo. Si ves un error arriba, copialo y envialo para revisarlo."
 pausar

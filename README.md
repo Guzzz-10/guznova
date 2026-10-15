@@ -14,13 +14,17 @@ Descargá la versión **LTS** desde <https://nodejs.org>, instalala con las opci
 
 ### Opción fácil: doble clic
 
-1. Descargá el proyecto (en GitHub: botón **`<> Code` → Download ZIP**) y **descomprimilo** (no lo abras desde adentro del ZIP).
-2. Hacé doble clic en:
-   - **Windows:** `iniciar.bat`
-   - **Mac:** `iniciar.command` (la primera vez: clic derecho → **Abrir** → **Abrir**, porque macOS bloquea los archivos descargados)
-3. La primera vez instala todo y carga los datos de demo (tarda unos minutos). Después se abre el navegador solo.
+1. Descargá el proyecto (en GitHub: botón **`<> Code` → Download ZIP**).
+2. **Windows:** antes de descomprimir, hacé clic derecho sobre el ZIP → **Propiedades** → marcá **Desbloquear** → **Aceptar**. Así Windows no bloquea el lanzador.
+3. Descomprimí el ZIP (clic derecho → **Extraer todo…**). Conviene dejar la carpeta **fuera de OneDrive**, por ejemplo en `C:\autonova`, porque OneDrive puede trabar la instalación. No lo abras desde adentro del ZIP.
+4. Hacé doble clic en:
+   - **Windows:** `iniciar.bat`. Si aparece *“Windows protegió su PC”*, tocá **Más información** → **Ejecutar de todas formas**.
+   - **Mac:** `iniciar.command`. Si aparece *“No se abrió…”*, tocá **Listo** (no lo mandes a la papelera). Después andá a **Ajustes del Sistema → Privacidad y seguridad**, bajá hasta *Seguridad*, tocá **Abrir igualmente**, poné tu contraseña y volvé a abrir el archivo. En macOS 14 o anteriores alcanza con clic derecho → **Abrir** → **Abrir**.
+5. La primera vez instala todo y carga los datos de demo (puede tardar varios minutos). Cuando el sitio está listo, el navegador se abre solo.
 
-**No cierres la ventana negra** mientras usás el sitio: si la cerrás, el sitio se apaga y el navegador muestra *“localhost ha rechazado la conexión”*.
+**No cierres la ventana negra** mientras usás el sitio: si la cerrás, el sitio se apaga y el navegador muestra *“localhost ha rechazado la conexión”*. Para apagarlo, cerrá esa ventana.
+
+> **Si el sitio se queda cargando:** en Windows, hacer clic dentro de la ventana negra la pone en modo “Seleccionar” y pausa el servidor. Hacé clic en la ventana y apretá **Esc**.
 
 ### Opción con la terminal
 
@@ -40,6 +44,7 @@ Significa que el sitio **no está corriendo** en tu computadora. Revisá que:
 - La ventana negra (o la terminal con `npm run dev`) siga abierta y diga **`Ready`**.
 - No haya un error en esa ventana. Si lo hay, copialo para revisarlo.
 - Estés entrando a la dirección que muestra la terminal (normalmente `http://localhost:3000`).
+- La terminal esté abierta **dentro de la carpeta del proyecto** (la que tiene `package.json`). Si `npm` dice *“Could not read package.json”*, estás en otra carpeta: entrá con `cd` a la del proyecto.
 
 ### Modo producción (local)
 
