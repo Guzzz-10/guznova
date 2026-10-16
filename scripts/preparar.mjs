@@ -47,7 +47,8 @@ if (dbUrl.startsWith("file:")) {
   const dbPath = path.isAbsolute(file) ? file : path.join(root, "prisma", file);
 
   if (!existsSync(dbPath)) {
-    console.log("• Primera vez: creando la base de datos y cargando los autos de demo…\n");
+    console.log("• Primera vez: creando la base de datos y cargando los autos de demo…");
+    console.log("  Puede tardar unos minutos (descarga un componente de Prisma). No cierres la ventana.\n");
 
     // Usamos los programas instalados en node_modules (sin npx, que podría
     // ofrecer descargar otra versión si la instalación quedó incompleta).
