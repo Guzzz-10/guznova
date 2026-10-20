@@ -3,9 +3,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## 1. Entrada desde ManyChat\nManyChat (Default Reply de WhatsApp → External Request) le pega a este webhook.\nResponde al instante (ManyChat corta a los ~10 s) y el bot contesta después por la API.\n\n- **Idempotencia:** si ManyChat reintenta, la misma clave en Redis frena el duplicado (60 s).\n- **bot_activo = no:** se registra el mensaje y no se responde (lo atiende un humano).",
-        "height": 220,
-        "width": 1300,
+        "content": "## 1. Entrada desde ManyChat\nEl flow **\"Recibir mensajes\"** de ManyChat junta los mensajes seguidos (campo respuesta_definitiva + espera de 10 s, como en el video) y le pega a este webhook con el Full Contact Data.\nResponde al instante (ManyChat corta a los ~10 s) y la respuesta sale después por el flow **\"Enviar mensajes\"**.\n\n- **Avisos del vendedor:** los flows \"Tomar conversación\" y \"Reactivar bot\" mandan {evento: tomar | reactivar} y solo se registra en Postgres.\n- **Idempotencia:** si ManyChat reintenta, la misma clave en Redis frena el duplicado (60 s).\n- **bot_activo = no:** se registra el mensaje y no se responde.",
+        "height": 260,
+        "width": 1520,
         "color": 4
       },
       "id": "f648a7a2-70f8-4af1-ac46-8c514954c903",
@@ -14,7 +14,7 @@
       "typeVersion": 1,
       "position": [
         -2660,
-        -40
+        -80
       ]
     },
     {
@@ -120,37 +120,43 @@
               "type": "string"
             },
             {
-              "id": "38bb8186-f1da-4d67-a1ff-e247a552b8ca",
-              "name": "ESPERA_BUFFER_SEGUNDOS",
-              "value": 9,
-              "type": "number"
-            },
-            {
-              "id": "a14550bc-fa1a-4225-a20c-c29206dce660",
-              "name": "PAUSA_ENTRE_MENSAJES_SEGUNDOS",
-              "value": 1.2,
-              "type": "number"
-            },
-            {
-              "id": "7999c96e-2e8d-475a-a32d-1d80ba321043",
+              "id": "062e48d5-7708-4f78-a722-60b2f80b4d0d",
               "name": "MANYCHAT_API_URL",
               "value": "https://api.manychat.com",
               "type": "string"
             },
             {
-              "id": "d99ae177-49f7-4e0c-af5c-ba85152fd581",
+              "id": "670aae07-6b0b-4a18-a6f7-5afc251d7b38",
+              "name": "FLOW_ENVIAR_MENSAJES",
+              "value": "COMPLETAR",
+              "type": "string"
+            },
+            {
+              "id": "72795b6a-ebc4-4a19-a358-000e44bd9584",
               "name": "FLOW_NOTIFICAR_HUMANO",
               "value": "COMPLETAR",
               "type": "string"
             },
             {
-              "id": "5e2d5cfe-3967-403a-a330-c4e8c99777c9",
+              "id": "e8d05a33-c3a9-45d8-a4c3-f93d567a9bc5",
               "name": "FLOW_CERRAR_CONVERSACION",
               "value": "",
               "type": "string"
             },
             {
-              "id": "b37e6587-c4b9-4700-afa7-5dbc359ed2d8",
+              "id": "302f87c2-033a-4249-a8b1-2ef861c73146",
+              "name": "USAR_BUFFER_N8N",
+              "value": "no",
+              "type": "string"
+            },
+            {
+              "id": "47f220c7-54cf-4f36-a1b1-5744ea722ad0",
+              "name": "ESPERA_BUFFER_SEGUNDOS",
+              "value": 9,
+              "type": "number"
+            },
+            {
+              "id": "17674e8c-2eaa-4234-aabe-9059852e6b7e",
               "name": "MENSAJE_RESPALDO",
               "value": "¡Perdón! Tuve un problema para responderte por acá. Ya le pasé tu consulta a un asesor de Otormín y te escribe enseguida.",
               "type": "string"
@@ -172,7 +178,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Normaliza lo que manda ManyChat (External Request) a un formato único,\n// igual que hacía \"Edit Fields1\" con Telegram en el demo.\n// Acepta dos formatos de body:\n//  A) campos sueltos: subscriber_id, nombre, apellido, telefono, texto, adjunto_url, tipo, bot_activo, ultima_interaccion\n//  B) la variable \"Full Contact Data\" de ManyChat: {\"contacto\": {{Full Contact Data}}} (o el objeto directo)\nconst crudo = $('Webhook ManyChat').first().json.body || {};\nconst contacto = crudo.contacto && typeof crudo.contacto === 'object'\n  ? crudo.contacto\n  : (crudo.custom_fields && crudo.id !== undefined ? crudo : null);\nconst body = contacto\n  ? {\n    subscriber_id: contacto.id,\n    nombre: contacto.first_name,\n    apellido: contacto.last_name,\n    telefono: contacto.whatsapp_phone || contacto.phone,\n    texto: contacto.last_input_text,\n    bot_activo: contacto.custom_fields?.bot_activo,\n    ultima_interaccion: contacto.last_interaction,\n    ...Object.fromEntries(Object.entries(crudo).filter(([k, v]) => k !== 'contacto' && v !== '' && v !== null && v !== undefined)),\n  }\n  : crudo;\n\n// ManyChat deja \"{{...}}\" o vacío cuando una variable no tiene valor\nfunction valor(v) {\n  if (v === undefined || v === null) return '';\n  const s = String(v).trim();\n  if (/^\\{\\{[^}]*\\}\\}$/.test(s)) return '';\n  return s;\n}\n\nconst EXT_AUDIO = /\\.(ogg|oga|opus|mp3|m4a|aac|amr|wav|weba|mpeg)(\\?|#|$)/i;\nconst EXT_IMAGEN = /\\.(jpe?g|png|webp|gif|heic)(\\?|#|$)/i;\nconst HOST_MEDIA = /(manychat|manybot|fbsbx|fbcdn|whatsapp|amazonaws)\\./i;\nconst esUrl = (s) => /^https?:\\/\\/\\S+$/i.test(s);\n\nconst subscriberId = valor(body.subscriber_id ?? body.contact_id);\nlet texto = valor(body.texto ?? body.last_input_text);\nlet adjuntoUrl = valor(body.adjunto_url);\nconst tipoDeclarado = valor(body.tipo).toLowerCase();\n\n// En WhatsApp, ManyChat guarda la URL del audio o la foto en \"Last Text Input\"\nif (!adjuntoUrl && esUrl(texto) && (EXT_AUDIO.test(texto) || EXT_IMAGEN.test(texto) || HOST_MEDIA.test(texto))) {\n  adjuntoUrl = texto;\n  texto = '';\n}\nif (adjuntoUrl && !esUrl(adjuntoUrl)) adjuntoUrl = '';\n\n// Tipo probable; el definitivo sale del archivo descargado (\"Preparar archivo\")\nlet tipoProbable = 'texto';\nif (adjuntoUrl) {\n  if (['audio', 'voz', 'voice'].includes(tipoDeclarado) || EXT_AUDIO.test(adjuntoUrl)) tipoProbable = 'audio';\n  else if (['imagen', 'image', 'foto'].includes(tipoDeclarado) || EXT_IMAGEN.test(adjuntoUrl)) tipoProbable = 'imagen';\n  else tipoProbable = 'otro';\n}\n\n// bot_activo vacío (contacto nuevo) cuenta como activo\nconst botRaw = valor(body.bot_activo).toLowerCase();\nconst botActivo = !['no', 'false', '0', 'off', 'n'].includes(botRaw);\n\n// Clave de idempotencia: mismo contacto + misma interacción + mismo contenido.\n// Si ManyChat reintenta el webhook, la segunda llamada da la misma clave.\nfunction fnv1a(str, seed) {\n  let h = seed >>> 0;\n  for (let i = 0; i < str.length; i++) {\n    h ^= str.charCodeAt(i);\n    h = Math.imul(h, 16777619) >>> 0;\n  }\n  return h.toString(16).padStart(8, '0');\n}\nconst huella = [subscriberId, valor(body.ultima_interaccion), texto, adjuntoUrl].join('|');\nconst claveIdempotencia = `otormin:dedupe:${subscriberId}:${fnv1a(huella, 2166136261)}${fnv1a(huella, 33554467)}`;\n\nconst nombre = [valor(body.nombre), valor(body.apellido)].filter(Boolean).join(' ');\n\nreturn [{\n  json: {\n    valido: subscriberId !== '',\n    subscriber_id: subscriberId,\n    nombre,\n    telefono: valor(body.telefono),\n    texto,\n    adjunto_url: adjuntoUrl,\n    tipo_probable: tipoProbable,\n    bot_activo: botActivo,\n    clave_idempotencia: claveIdempotencia,\n    clave_buffer: `otormin:buffer:${subscriberId}`,\n    texto_log: texto || (adjuntoUrl ? `[${tipoProbable}] ${adjuntoUrl}` : ''),\n  },\n}];\n"
+        "jsCode": "// Normaliza lo que manda ManyChat (External Request del flow \"Recibir mensajes\")\n// a un formato único, igual que hacía \"Edit Fields1\" con Telegram en el demo.\n// Formatos de body aceptados:\n//  A) Full Contact Data de ManyChat (recomendado): el mensaje viene en custom_fields.mensaje_a_enviar\n//     (el buffer de ManyChat: respuesta_definitiva → mensaje_a_enviar). También {\"contacto\": {{Full Contact Data}}}\n//  B) campos sueltos: subscriber_id, nombre, apellido, telefono, mensaje (o texto), adjunto_url, bot_activo, ultima_interaccion\n//  C) avisos del vendedor: {\"subscriber_id\": \"...\", \"evento\": \"tomar\" | \"reactivar\"}\nconst req = $('Webhook ManyChat').first().json;\nconst crudo = req.body || {};\nconst headers = req.headers || {};\nconst contacto = crudo.contacto && typeof crudo.contacto === 'object'\n  ? crudo.contacto\n  : (crudo.custom_fields && crudo.id !== undefined ? crudo : null);\nconst cf = contacto?.custom_fields || {};\n\n// ManyChat deja \"{{...}}\" o vacío cuando una variable no tiene valor\nfunction valor(v) {\n  if (v === undefined || v === null) return '';\n  const s = String(v).trim();\n  if (/^\\{\\{[^}]*\\}\\}$/.test(s)) return '';\n  return s;\n}\nconst primero = (...vs) => vs.map(valor).find(Boolean) || '';\n\nconst subscriberId = primero(crudo.subscriber_id, crudo.contact_id, contacto?.id);\nconst evento = valor(crudo.evento).toLowerCase();\n\n// El mensaje juntado por ManyChat. El header \"mensaje\" (como en el video) queda de respaldo:\n// los headers no llevan bien los acentos, por eso primero se mira el body.\nconst textoOriginal = primero(crudo.mensaje, crudo.texto, cf.mensaje_a_enviar, cf.respuesta_definitiva,\n  contacto?.last_input_text, crudo.last_input_text, headers.mensaje);\n\n// Los audios y fotos llegan como URL dentro del texto (ManyChat guarda la URL en \"Last Text Input\").\n// Puede haber varios en un mismo turno: \"hola, https://...ogg, https://...jpg\"\nconst EXT_AUDIO = /\\.(ogg|oga|opus|mp3|m4a|aac|amr|wav|weba|mpeg)(\\?|#|$)/i;\nconst EXT_IMAGEN = /\\.(jpe?g|png|webp|gif|heic)(\\?|#|$)/i;\nconst HOST_MEDIA = /(manychat|manybot|fbsbx|fbcdn|whatsapp|amazonaws)\\./i;\nconst limpiarUrl = (u) => u.replace(/[),.;:!?'\"\\]]+$/, '');\nconst urls = (textoOriginal.match(/https?:\\/\\/[^\\s,]+/gi) || []).map(limpiarUrl);\nconst extra = valor(crudo.adjunto_url);\nconst adjuntosUrl = [...new Set([...urls, ...(extra ? [extra] : [])])]\n  .filter((u) => /^https?:\\/\\//i.test(u) && (EXT_AUDIO.test(u) || EXT_IMAGEN.test(u) || HOST_MEDIA.test(u) || u === extra))\n  .slice(0, 5);\n\nlet texto = textoOriginal;\nfor (const u of adjuntosUrl) texto = texto.split(u).join(' ');\ntexto = texto.replace(/(\\s*,\\s*){2,}/g, ', ').replace(/^[\\s,]+|[\\s,]+$/g, '').replace(/[ \\t]{2,}/g, ' ').trim();\n\nconst adjuntos = adjuntosUrl.map((url, orden) => ({\n  url,\n  orden,\n  tipo_probable: EXT_AUDIO.test(url) ? 'audio' : (EXT_IMAGEN.test(url) ? 'imagen' : 'otro'),\n}));\n\n// bot_activo vacío (contacto nuevo) cuenta como activo\nconst botRaw = primero(crudo.bot_activo, cf.bot_activo).toLowerCase();\nconst botActivo = !['no', 'false', '0', 'off', 'n'].includes(botRaw);\n\n// Clave de idempotencia: mismo contacto + misma interacción + mismo contenido.\n// Si ManyChat reintenta el webhook, la segunda llamada da la misma clave.\nfunction fnv1a(str, seed) {\n  let h = seed >>> 0;\n  for (let i = 0; i < str.length; i++) {\n    h ^= str.charCodeAt(i);\n    h = Math.imul(h, 16777619) >>> 0;\n  }\n  return h.toString(16).padStart(8, '0');\n}\nconst huella = [subscriberId, primero(crudo.ultima_interaccion, contacto?.last_interaction), textoOriginal, extra].join('|');\nconst claveIdempotencia = `otormin:dedupe:${subscriberId}:${fnv1a(huella, 2166136261)}${fnv1a(huella, 33554467)}`;\n\nconst nombre = primero(contacto?.name, [valor(crudo.nombre ?? contacto?.first_name), valor(crudo.apellido ?? contacto?.last_name)].filter(Boolean).join(' '));\n\nreturn [{\n  json: {\n    valido: subscriberId !== '',\n    evento: ['tomar', 'reactivar'].includes(evento) ? evento : '',\n    subscriber_id: subscriberId,\n    nombre,\n    telefono: primero(crudo.telefono, contacto?.whatsapp_phone, contacto?.phone),\n    texto,\n    adjuntos,\n    bot_activo: botActivo,\n    clave_idempotencia: claveIdempotencia,\n    clave_buffer: `otormin:buffer:${subscriberId}`,\n    texto_log: textoOriginal,\n    tipo_log: adjuntos.length ? adjuntos.map((a) => a.tipo_probable).join('+') : 'texto',\n  },\n}];\n"
       },
       "id": "b424d7d5-595e-4218-a5ad-15c46bd76638",
       "name": "Normalizar entrada",
@@ -225,8 +231,66 @@
       "typeVersion": 1,
       "position": [
         -1720,
-        480
+        600
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "54d87376-2434-463d-a8d5-0e573f3a8419",
+              "leftValue": "={{ $json.evento }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8ac87c55-5866-4254-a709-dff27a4745a1",
+      "name": "¿Es un aviso del vendedor?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH fila AS (\n  INSERT INTO conversaciones AS c (subscriber_id, bot_activo, estado, tomado_at, reactivado_at)\n  VALUES ($1, $2 = 'reactivar',\n          CASE WHEN $2 = 'tomar' THEN 'necesita_humano' ELSE 'en_conversacion' END,\n          CASE WHEN $2 = 'tomar' THEN now() END,\n          CASE WHEN $2 = 'reactivar' THEN now() END)\n  ON CONFLICT (subscriber_id) DO UPDATE SET\n    bot_activo = EXCLUDED.bot_activo,\n    tomado_at = COALESCE(EXCLUDED.tomado_at, c.tomado_at),\n    reactivado_at = COALESCE(EXCLUDED.reactivado_at, c.reactivado_at),\n    estado = CASE WHEN $2 = 'tomar' THEN 'necesita_humano'\n                  WHEN c.estado = 'necesita_humano' THEN 'en_conversacion'\n                  ELSE c.estado END\n  RETURNING c.subscriber_id, c.estado\n)\nINSERT INTO eventos_conversacion (subscriber_id, tipo, estado, detalle)\nSELECT subscriber_id, CASE WHEN $2 = 'tomar' THEN 'tomado_por_humano' ELSE 'reactivacion' END, estado,\n       jsonb_build_object('manual', true)\nFROM fila\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [ $json.subscriber_id, $json.evento ] }}"
+        }
+      },
+      "id": "9bc66d08-382d-4a0d-ad87-b68c7071f37a",
+      "name": "Registrar aviso del vendedor",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -1500,
+        120
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "otorminPostgres",
+          "name": "Postgres Otormín"
+        }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -240,8 +304,8 @@
       "type": "n8n-nodes-base.redis",
       "typeVersion": 1,
       "position": [
-        -1720,
-        300
+        -1500,
+        400
       ],
       "credentials": {
         "redis": {
@@ -262,7 +326,7 @@
           },
           "conditions": [
             {
-              "id": "19d43ccb-ca5c-4f81-a920-5dbe7ca76639",
+              "id": "8cd3c900-3d5c-48f7-a62b-49319bee8303",
               "leftValue": "={{ !(Number(Object.values($json)[0]) > 1) }}",
               "rightValue": "",
               "operator": {
@@ -281,8 +345,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -1500,
-        300
+        -1280,
+        400
       ]
     },
     {
@@ -292,8 +356,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        -1280,
-        480
+        -1060,
+        600
       ]
     },
     {
@@ -301,7 +365,7 @@
         "operation": "executeQuery",
         "query": "WITH fila AS (\n  INSERT INTO conversaciones AS c\n    (subscriber_id, telefono, nombre, bot_activo, tomado_at,\n     ultimo_mensaje_cliente, ultimo_mensaje_cliente_at, cantidad_mensajes_cliente)\n  VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4::boolean,\n          CASE WHEN $4::boolean THEN NULL ELSE now() END, $5, now(), 1)\n  ON CONFLICT (subscriber_id) DO UPDATE SET\n    telefono = COALESCE(EXCLUDED.telefono, c.telefono),\n    nombre = COALESCE(EXCLUDED.nombre, c.nombre),\n    bot_activo = EXCLUDED.bot_activo,\n    tomado_at = CASE WHEN c.bot_activo AND NOT EXCLUDED.bot_activo THEN now() ELSE c.tomado_at END,\n    reactivado_at = CASE WHEN NOT c.bot_activo AND EXCLUDED.bot_activo THEN now() ELSE c.reactivado_at END,\n    ultimo_mensaje_cliente = EXCLUDED.ultimo_mensaje_cliente,\n    ultimo_mensaje_cliente_at = now(),\n    cantidad_mensajes_cliente = c.cantidad_mensajes_cliente + 1\n  RETURNING c.subscriber_id, c.estado, c.bot_activo, c.cantidad_mensajes_bot, (c.xmax = 0) AS es_nuevo\n), evento AS (\n  INSERT INTO eventos_conversacion (subscriber_id, tipo, estado, detalle)\n  SELECT subscriber_id, 'mensaje_cliente', estado,\n         jsonb_build_object('texto', $5::text, 'tipo', $6::text, 'bot_activo', $4::boolean)\n  FROM fila\n)\nSELECT * FROM fila;",
         "options": {
-          "queryReplacement": "={{ [ $('Normalizar entrada').first().json.subscriber_id, $('Normalizar entrada').first().json.telefono, $('Normalizar entrada').first().json.nombre, $('Normalizar entrada').first().json.bot_activo, $('Normalizar entrada').first().json.texto_log, $('Normalizar entrada').first().json.tipo_probable ] }}"
+          "queryReplacement": "={{ [ $('Normalizar entrada').first().json.subscriber_id, $('Normalizar entrada').first().json.telefono, $('Normalizar entrada').first().json.nombre, $('Normalizar entrada').first().json.bot_activo, $('Normalizar entrada').first().json.texto_log, $('Normalizar entrada').first().json.tipo_log ] }}"
         }
       },
       "id": "da1c0c51-90a7-4cf3-ae03-6672aa1b97b7",
@@ -309,8 +373,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        -1280,
-        300
+        -1060,
+        400
       ],
       "credentials": {
         "postgres": {
@@ -332,7 +396,7 @@
           },
           "conditions": [
             {
-              "id": "6896474c-61ef-4316-ae7d-e478e57a1bd8",
+              "id": "69e4ac07-742f-496d-a23c-f33d702b4f8e",
               "leftValue": "={{ $('Normalizar entrada').first().json.bot_activo }}",
               "rightValue": "",
               "operator": {
@@ -351,8 +415,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -1060,
-        300
+        -840,
+        400
       ]
     },
     {
@@ -362,15 +426,15 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        -840,
-        480
+        -620,
+        600
       ]
     },
     {
       "parameters": {
-        "content": "## 2. Audio, imagen o texto\nAudio → Whisper. Imagen → GPT-4o (permuta o captura de publicación). Texto → directo.\nSi la descarga o el análisis fallan, al agente le llega un texto de respaldo para que le pida al cliente que lo escriba.\nTodo termina en un solo texto para el buffer.",
-        "height": 220,
-        "width": 1640,
+        "content": "## 2. Audios, fotos y texto (puede venir todo junto)\nComo en el video: se separan los adjuntos del mensaje, se procesa cada uno y se juntan en orden.\nAudio → Whisper. Foto → GPT-4o (permuta o captura de publicación). Texto → directo.\nSi una descarga o un análisis falla, al agente le llega un texto de respaldo para que le pida al cliente que lo escriba.",
+        "height": 240,
+        "width": 1900,
         "color": 6
       },
       "id": "4f5a0bc0-3148-4944-aff8-3a6157cab65c",
@@ -378,8 +442,8 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -900,
-        -40
+        -660,
+        -80
       ]
     },
     {
@@ -393,12 +457,12 @@
           },
           "conditions": [
             {
-              "id": "662c10c0-87f1-43b5-a8d8-347d16acdd18",
-              "leftValue": "={{ $('Normalizar entrada').first().json.adjunto_url }}",
+              "id": "4565e351-832b-4877-af26-be2daf55a12e",
+              "leftValue": "={{ $('Normalizar entrada').first().json.adjuntos.length > 0 }}",
               "rightValue": "",
               "operator": {
-                "type": "string",
-                "operation": "notEmpty",
+                "type": "boolean",
+                "operation": "true",
                 "singleValue": true
               }
             }
@@ -407,13 +471,13 @@
         },
         "options": {}
       },
-      "id": "d0155edf-d4c2-4987-af6d-1e73bf6c5fa9",
-      "name": "¿Trae audio o imagen?",
+      "id": "2a782f70-cc92-438c-a5d9-098d6021e8a4",
+      "name": "¿Trae audios o fotos?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -840,
-        300
+        -620,
+        400
       ]
     },
     {
@@ -421,7 +485,7 @@
         "assignments": {
           "assignments": [
             {
-              "id": "73ecc8ff-ee89-47c9-ab88-4088a8f56c6f",
+              "id": "b4d9e08f-6273-41a4-a2d5-df073c2245a3",
               "name": "contenido",
               "value": "",
               "type": "string"
@@ -435,13 +499,26 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -620,
-        100
+        -400,
+        120
       ]
     },
     {
       "parameters": {
-        "url": "={{ $('Normalizar entrada').first().json.adjunto_url }}",
+        "jsCode": "// Una salida por audio o foto (como el Split Out del video)\nreturn $('Normalizar entrada').first().json.adjuntos.map((a) => ({ json: a }));\n"
+      },
+      "id": "771042e5-5bc5-4bbe-aaa7-e92bb6c2028e",
+      "name": "Separar adjuntos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
         "options": {
           "response": {
             "response": {
@@ -457,8 +534,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -620,
-        420
+        -180,
+        520
       ],
       "retryOnFail": true,
       "maxTries": 2,
@@ -467,15 +544,16 @@
     },
     {
       "parameters": {
-        "jsCode": "// Define si el adjunto es audio, imagen u otra cosa según el archivo descargado,\n// y le pone un nombre con extensión válida (Whisper lo necesita).\nconst item = $input.first();\nconst bin = item.binary?.data;\nconst datos = $('Normalizar entrada').first().json;\n\nif (!bin) {\n  return [{ json: { tipo_archivo: 'otro', mime: '' } }];\n}\n\nconst nombre = String(bin.fileName || '');\nconst ext = (nombre.match(/\\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();\nlet mime = String(bin.mimeType || '').toLowerCase().split(';')[0].trim();\n\nconst MIME_POR_EXT = {\n  ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', mp3: 'audio/mpeg', m4a: 'audio/mp4',\n  aac: 'audio/aac', wav: 'audio/wav', amr: 'audio/amr',\n  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',\n};\nconst sinTipo = () => !mime || mime === 'application/octet-stream' || mime === 'binary/octet-stream';\nif (sinTipo() && MIME_POR_EXT[ext]) mime = MIME_POR_EXT[ext];\nif (sinTipo() && datos.tipo_probable === 'audio') mime = 'audio/ogg';\nif (sinTipo() && datos.tipo_probable === 'imagen') mime = 'image/jpeg';\nif (mime === 'video/ogg') mime = 'audio/ogg'; // notas de voz que llegan como video/ogg\n\nlet tipo = 'otro';\nif (mime.startsWith('audio/')) tipo = 'audio';\nelse if (mime.startsWith('image/')) tipo = 'imagen';\n\nconst EXT_POR_MIME = {\n  'audio/ogg': 'ogg', 'audio/opus': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/mp4': 'm4a',\n  'audio/aac': 'm4a', 'audio/x-m4a': 'm4a', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/webm': 'webm',\n  'audio/amr': 'amr', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',\n};\nconst extFinal = EXT_POR_MIME[mime] || ext || 'bin';\nbin.mimeType = mime || 'application/octet-stream';\nbin.fileName = `${tipo === 'audio' ? 'audio' : 'archivo'}.${extFinal}`;\nbin.fileExtension = extFinal;\n\nreturn [{ json: { tipo_archivo: tipo, mime }, binary: { data: bin } }];\n"
+        "mode": "runOnceForEachItem",
+        "jsCode": "// (se ejecuta una vez por adjunto)\n// Define si el adjunto es audio, imagen u otra cosa según el archivo descargado,\n// y le pone un nombre con extensión válida (Whisper lo necesita).\nconst adj = $('Separar adjuntos').item.json;\nconst bin = $input.item.binary?.data;\n\nif (!bin) {\n  return { json: { tipo_archivo: 'otro', mime: '', orden: adj.orden, url: adj.url } };\n}\n\nconst nombre = String(bin.fileName || '');\nconst ext = (nombre.match(/\\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();\nlet mime = String(bin.mimeType || '').toLowerCase().split(';')[0].trim();\n\nconst MIME_POR_EXT = {\n  ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', mp3: 'audio/mpeg', m4a: 'audio/mp4',\n  aac: 'audio/aac', wav: 'audio/wav', amr: 'audio/amr',\n  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',\n};\nconst sinTipo = () => !mime || mime === 'application/octet-stream' || mime === 'binary/octet-stream';\nif (sinTipo() && MIME_POR_EXT[ext]) mime = MIME_POR_EXT[ext];\nif (sinTipo() && adj.tipo_probable === 'audio') mime = 'audio/ogg';\nif (sinTipo() && adj.tipo_probable === 'imagen') mime = 'image/jpeg';\nif (mime === 'video/ogg') mime = 'audio/ogg'; // notas de voz que llegan como video/ogg\n\nlet tipo = 'otro';\nif (mime.startsWith('audio/')) tipo = 'audio';\nelse if (mime.startsWith('image/')) tipo = 'imagen';\n\nconst EXT_POR_MIME = {\n  'audio/ogg': 'ogg', 'audio/opus': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/mp4': 'm4a',\n  'audio/aac': 'm4a', 'audio/x-m4a': 'm4a', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/webm': 'webm',\n  'audio/amr': 'amr', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',\n};\nconst extFinal = EXT_POR_MIME[mime] || ext || 'bin';\nbin.mimeType = mime || 'application/octet-stream';\nbin.fileName = `${tipo === 'audio' ? 'audio' : 'archivo'}.${extFinal}`;\nbin.fileExtension = extFinal;\n\nreturn { json: { tipo_archivo: tipo, mime, orden: adj.orden, url: adj.url }, binary: { data: bin } };\n"
       },
       "id": "8e951d35-4c0c-4bb2-a172-18f9486f8300",
       "name": "Preparar archivo",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -400,
-        420
+        40,
+        440
       ]
     },
     {
@@ -483,10 +561,16 @@
         "assignments": {
           "assignments": [
             {
-              "id": "b4d9e08f-6273-41a4-a2d5-df073c2245a3",
+              "id": "c43871e2-b261-4046-aae1-538fa3cd764c",
               "name": "contenido",
               "value": "[El cliente mandó un audio o una foto que no se pudo descargar. Pedile con amabilidad que lo reenvíe o que lo escriba.]",
               "type": "string"
+            },
+            {
+              "id": "46ecdf76-224b-426f-a764-6ab433d30ba9",
+              "name": "orden",
+              "value": "={{ $('Separar adjuntos').item.json.orden }}",
+              "type": "number"
             }
           ]
         },
@@ -497,8 +581,8 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -400,
-        700
+        40,
+        820
       ]
     },
     {
@@ -512,7 +596,7 @@
           },
           "conditions": [
             {
-              "id": "1affd8d9-f074-4d52-a952-c296d143c9f8",
+              "id": "5983ae88-f6bd-43c6-a589-2bd5e2ae724d",
               "leftValue": "={{ $json.tipo_archivo }}",
               "rightValue": "audio",
               "operator": {
@@ -530,8 +614,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        -180,
-        420
+        260,
+        440
       ]
     },
     {
@@ -545,7 +629,7 @@
           },
           "conditions": [
             {
-              "id": "5983ae88-f6bd-43c6-a589-2bd5e2ae724d",
+              "id": "c0bd3152-7332-493c-afcc-55a4594855c7",
               "leftValue": "={{ $json.tipo_archivo }}",
               "rightValue": "imagen",
               "operator": {
@@ -563,8 +647,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        40,
-        560
+        480,
+        600
       ]
     },
     {
@@ -581,8 +665,8 @@
       "type": "@n8n/n8n-nodes-langchain.openAi",
       "typeVersion": 2.1,
       "position": [
-        40,
-        300
+        480,
+        320
       ],
       "credentials": {
         "openAiApi": {
@@ -600,10 +684,16 @@
         "assignments": {
           "assignments": [
             {
-              "id": "c43871e2-b261-4046-aae1-538fa3cd764c",
+              "id": "40787dec-602f-4f96-a988-cc77f9be9443",
               "name": "contenido",
               "value": "={{ String($json.text || '').trim() ? '[Audio del cliente, transcripción]: ' + String($json.text).trim() : '[El cliente mandó un audio que no se entiende. Pedile con amabilidad que lo escriba.]' }}",
               "type": "string"
+            },
+            {
+              "id": "d91624d5-41c3-42e4-ac65-fdc6e5a29ffc",
+              "name": "orden",
+              "value": "={{ $('Preparar archivo').item.json.orden }}",
+              "type": "number"
             }
           ]
         },
@@ -614,7 +704,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        260,
+        700,
         240
       ]
     },
@@ -623,10 +713,16 @@
         "assignments": {
           "assignments": [
             {
-              "id": "7ebaa853-02c4-46f8-ad37-0c4f7aa959f2",
+              "id": "79c610e0-e2cf-404a-a43e-a2302ce64677",
               "name": "contenido",
               "value": "[El cliente mandó un audio que no se pudo transcribir. Pedile con amabilidad que lo escriba.]",
               "type": "string"
+            },
+            {
+              "id": "ef668955-2763-41e5-a675-761c159e16c0",
+              "name": "orden",
+              "value": "={{ $('Preparar archivo').item.json.orden }}",
+              "type": "number"
             }
           ]
         },
@@ -637,7 +733,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        260,
+        700,
         400
       ]
     },
@@ -664,7 +760,7 @@
       "type": "@n8n/n8n-nodes-langchain.openAi",
       "typeVersion": 2.1,
       "position": [
-        260,
+        700,
         560
       ],
       "credentials": {
@@ -680,14 +776,15 @@
     },
     {
       "parameters": {
-        "jsCode": "// Saca el texto (JSON) que devolvió el análisis de imagen y lo deja listo para el agente\nconst r = $input.first().json;\nconst partes = Object.values(r || {});\nconst mensaje = partes.find((p) => p && p.type === 'message') || r['0'] || r;\nlet analisis = mensaje?.content?.[0]?.text ?? r.content?.[0]?.text ?? r.text ?? '';\nanalisis = String(analisis).replace(/```json|```/g, '').trim();\n\nconst contenido = analisis\n  ? `[Imagen del cliente] Análisis automático de la foto (JSON): ${analisis}`\n  : '[El cliente mandó una foto que no se pudo analizar. Pedile que te cuente qué auto es o qué necesita.]';\n\nreturn [{ json: { contenido } }];\n"
+        "mode": "runOnceForEachItem",
+        "jsCode": "// (se ejecuta una vez por foto)\n// Saca el texto (JSON) que devolvió el análisis de imagen y lo deja listo para el agente\nconst r = $input.item.json || {};\nconst partes = Object.values(r);\nconst mensaje = partes.find((p) => p && p.type === 'message') || r['0'] || r;\nlet analisis = mensaje?.content?.[0]?.text ?? r.content?.[0]?.text ?? r.text ?? '';\nanalisis = String(analisis).replace(/```json|```/g, '').trim();\n\nconst contenido = analisis\n  ? `[Imagen del cliente] Análisis automático de la foto (JSON): ${analisis}`\n  : '[El cliente mandó una foto que no se pudo analizar. Pedile que te cuente qué auto es o qué necesita.]';\n\nreturn { json: { contenido, orden: $('Preparar archivo').item.json.orden } };\n"
       },
       "id": "690cdd83-3842-4e6e-a563-6e3609c71e2c",
       "name": "Texto desde imagen",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        480,
+        920,
         520
       ]
     },
@@ -696,10 +793,16 @@
         "assignments": {
           "assignments": [
             {
-              "id": "40787dec-602f-4f96-a988-cc77f9be9443",
+              "id": "223b7657-fe8e-4003-a722-001402ae40e3",
               "name": "contenido",
               "value": "[El cliente mandó una foto que no se pudo analizar. Pedile que te cuente qué auto es o qué necesita.]",
               "type": "string"
+            },
+            {
+              "id": "ce1887c1-8b29-454c-ad20-37b54695110b",
+              "name": "orden",
+              "value": "={{ $('Preparar archivo').item.json.orden }}",
+              "type": "number"
             }
           ]
         },
@@ -710,8 +813,8 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        480,
-        700
+        920,
+        680
       ]
     },
     {
@@ -719,10 +822,16 @@
         "assignments": {
           "assignments": [
             {
-              "id": "fa958a9f-cdf4-43b8-a51b-001311ac766b",
+              "id": "ee1458d0-7d77-4f3d-ae48-0f1088f2eec6",
               "name": "contenido",
-              "value": "={{ '[El cliente mandó un archivo que no es audio ni foto (por ejemplo un documento o un link). Si parece un link de una publicación, pedile marca, modelo y año. Archivo: ' + $('Normalizar entrada').first().json.adjunto_url + ']' }}",
+              "value": "={{ '[El cliente mandó un archivo que no es audio ni foto (por ejemplo un documento). Pedile que te cuente qué necesita. Archivo: ' + $json.url + ']' }}",
               "type": "string"
+            },
+            {
+              "id": "ce7f89d0-c6a2-411c-ae60-075aa9e71746",
+              "name": "orden",
+              "value": "={{ $json.orden }}",
+              "type": "number"
             }
           ]
         },
@@ -733,8 +842,34 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        260,
+        700,
         820
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 6
+      },
+      "id": "34858b8c-e27e-47c3-a7f8-1f135b798021",
+      "name": "Juntar adjuntos",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1140,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Junta lo que salió de cada audio y foto, en el orden en que los mandó el cliente\n// (como el Aggregate del video)\nconst partes = $input.all()\n  .map((i) => i.json)\n  .filter((j) => j && typeof j.contenido === 'string' && j.contenido.trim());\npartes.sort((a, b) => Number(a.orden ?? 0) - Number(b.orden ?? 0));\nreturn [{ json: { contenido: partes.map((p) => p.contenido.trim()).join('\\n') } }];\n"
+      },
+      "id": "f9126203-2835-4902-a44e-1d4bb9ce4581",
+      "name": "Unir adjuntos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        520
       ]
     },
     {
@@ -746,15 +881,15 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        720,
-        300
+        1580,
+        400
       ]
     },
     {
       "parameters": {
-        "content": "## 3. Buffer de mensajes (Redis)\nEl cliente suele mandar varios mensajes seguidos. Cada mensaje se agrega a una lista, espera ~9 s y solo sigue la ejecución del ÚLTIMO mensaje: el agente responde una sola vez con todo junto.",
+        "content": "## 3. Buffer de n8n (opcional, apagado)\nLos mensajes seguidos ya los junta ManyChat (flow \"Recibir mensajes\").\nSi querés una segunda capa en n8n, poné USAR_BUFFER_N8N = si: cada mensaje se agrega a una lista en Redis, espera ESPERA_BUFFER_SEGUNDOS y solo sigue el ÚLTIMO.",
         "height": 220,
-        "width": 1340,
+        "width": 1480,
         "color": 5
       },
       "id": "c17e6c9d-c5d2-44ae-a980-6d14c808a92b",
@@ -762,23 +897,56 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        860,
-        -40
+        1760,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "840a06c9-bf16-4da7-ab6d-bb1437f17e70",
+              "leftValue": "={{ $('Configuración Otormín').first().json.USAR_BUFFER_N8N }}",
+              "rightValue": "si",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "feaebaec-61e4-4372-abef-aeed04b2e2ab",
+      "name": "¿Usar buffer de n8n?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1800,
+        400
       ]
     },
     {
       "parameters": {
         "operation": "push",
         "list": "={{ $('Normalizar entrada').first().json.clave_buffer }}",
-        "messageData": "={{ $json.mensaje_payload }}"
+        "messageData": "={{ $('Preparar payload del buffer').first().json.mensaje_payload }}"
       },
       "id": "21df08bd-5dbf-4303-a5bf-a9ee7e7da632",
       "name": "Agregar al buffer (Redis)",
       "type": "n8n-nodes-base.redis",
       "typeVersion": 1,
       "position": [
-        940,
-        300
+        2020,
+        240
       ],
       "credentials": {
         "redis": {
@@ -796,8 +964,8 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        1160,
-        300
+        2240,
+        240
       ],
       "webhookId": "0b8f5c1e-3a7d-4f6e-8c2b-9d4e1a7f3b02"
     },
@@ -814,8 +982,8 @@
       "type": "n8n-nodes-base.redis",
       "typeVersion": 1,
       "position": [
-        1380,
-        300
+        2460,
+        240
       ],
       "credentials": {
         "redis": {
@@ -835,7 +1003,7 @@
           },
           "conditions": [
             {
-              "id": "7e1b5a9d-f1ec-46db-a39d-6e60786d8ab0",
+              "id": "0e5ebc70-26a8-4a60-a0db-86a4bb75b313",
               "leftValue": "={{ ($json.mensajes || [])[0] }}",
               "rightValue": "={{ $('Preparar payload del buffer').first().json.mensaje_payload }}",
               "operator": {
@@ -853,8 +1021,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        1600,
-        300
+        2680,
+        240
       ]
     },
     {
@@ -864,8 +1032,8 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        1820,
-        480
+        2900,
+        80
       ]
     },
     {
@@ -878,8 +1046,8 @@
       "type": "n8n-nodes-base.redis",
       "typeVersion": 1,
       "position": [
-        1820,
-        300
+        2900,
+        240
       ],
       "credentials": {
         "redis": {
@@ -893,55 +1061,55 @@
         "assignments": {
           "assignments": [
             {
-              "id": "39a32f4d-8ebc-435f-a2a6-ef256b40e454",
+              "id": "e8b6a772-5649-494f-a37e-a29961e3980e",
               "name": "mensaje",
-              "value": "={{ ($('Leer buffer (Redis)').first().json.mensajes || []).slice().reverse().map(p => String(p).slice(String(p).indexOf('|') + 1)).join('\\n') }}",
+              "value": "={{ $('Vaciar buffer (Redis)').isExecuted ? ($('Leer buffer (Redis)').first().json.mensajes || []).slice().reverse().map(p => String(p).slice(String(p).indexOf('|') + 1)).join('\\n') : $('Preparar payload del buffer').first().json.contenido }}",
               "type": "string"
             },
             {
-              "id": "11c252f7-7fa4-4c91-a78f-0440332adb88",
+              "id": "7c80aed2-cc1c-43e9-af02-ed3f2cd56bf1",
               "name": "session_id",
               "value": "={{ 'whatsapp-' + $('Normalizar entrada').first().json.subscriber_id }}",
               "type": "string"
             },
             {
-              "id": "1d027563-9c34-4d72-afd6-1a1938183409",
+              "id": "3b51092e-8d73-4c27-a5c7-f2a4ab19bb7f",
               "name": "subscriber_id",
               "value": "={{ $('Normalizar entrada').first().json.subscriber_id }}",
               "type": "string"
             },
             {
-              "id": "d023f4b5-e7d7-4558-ad24-f91d79921420",
+              "id": "a48b8f49-71e5-40ea-a4ef-16af5617e686",
               "name": "nombre",
               "value": "={{ $('Normalizar entrada').first().json.nombre }}",
               "type": "string"
             },
             {
-              "id": "858a4903-03b0-46bd-aa35-16d18b89b5fd",
+              "id": "7fe88222-f016-4bf0-aec6-a47e789e882f",
               "name": "telefono",
               "value": "={{ $('Normalizar entrada').first().json.telefono }}",
               "type": "string"
             },
             {
-              "id": "8ab35eb9-37be-414a-a7e8-14ca1245d166",
+              "id": "6019a6f3-1448-4b15-add9-c13dac43ee31",
               "name": "fecha_hora",
               "value": "={{ $now.setZone($('Configuración Otormín').first().json.ZONA_HORARIA).setLocale('es').toFormat('cccc dd/LL/yyyy HH:mm') }}",
               "type": "string"
             },
             {
-              "id": "83c6f7de-f906-4d1c-ac29-41709a729a37",
+              "id": "690d63c3-edf8-4670-a5a6-d85bfc09e857",
               "name": "fecha_iso",
               "value": "={{ $now.setZone($('Configuración Otormín').first().json.ZONA_HORARIA).toISO() }}",
               "type": "string"
             },
             {
-              "id": "46d83360-bfe9-4126-aac3-dd3ccb8f2479",
+              "id": "9bfa63fe-9878-49de-a799-c463601ee0dc",
               "name": "estado_anterior",
               "value": "={{ $('Registrar mensaje entrante').first().json.estado || 'nuevo' }}",
               "type": "string"
             },
             {
-              "id": "3a437bc8-669e-4850-a54f-3b99e13ffdb4",
+              "id": "a1adb2db-5dca-4e01-a235-ee7cc29dc3d7",
               "name": "es_primer_contacto",
               "value": "={{ Number($('Registrar mensaje entrante').first().json.cantidad_mensajes_bot || 0) === 0 }}",
               "type": "boolean"
@@ -955,8 +1123,8 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        2040,
-        300
+        3120,
+        400
       ]
     },
     {
@@ -971,7 +1139,7 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        2240,
+        3340,
         -40
       ]
     },
@@ -992,7 +1160,7 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        2320,
+        3420,
         300
       ],
       "retryOnFail": true,
@@ -1016,7 +1184,7 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.3,
       "position": [
-        2160,
+        3260,
         600
       ],
       "credentials": {
@@ -1038,7 +1206,7 @@
       "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
       "typeVersion": 1.4,
       "position": [
-        2320,
+        3420,
         600
       ],
       "credentials": {
@@ -1069,7 +1237,7 @@
       "type": "n8n-nodes-base.googleSheetsTool",
       "typeVersion": 4.5,
       "position": [
-        2480,
+        3580,
         600
       ],
       "credentials": {
@@ -1095,7 +1263,7 @@
       "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.3,
       "position": [
-        2640,
+        3740,
         600
       ]
     },
@@ -1123,7 +1291,7 @@
       "type": "n8n-nodes-base.googleCalendarTool",
       "typeVersion": 1.3,
       "position": [
-        2800,
+        3900,
         600
       ],
       "credentials": {
@@ -1149,7 +1317,7 @@
       "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.3,
       "position": [
-        2960,
+        4060,
         600
       ]
     },
@@ -1162,7 +1330,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2720,
+        3820,
         200
       ]
     },
@@ -1175,13 +1343,13 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2720,
+        3820,
         420
       ]
     },
     {
       "parameters": {
-        "content": "## 5. Control humano y estados en ManyChat\n1. Relee el contacto: si un humano puso bot_activo = no mientras el agente pensaba, no se envía nada.\n2. Si hay derivación: **bot_activo = no** → campos (estado, motivo_derivacion) → **tag necesita_humano** → **flow de ManyChat que avisa al equipo** (Notify Admins + abrir y asignar en Live Chat) → mensaje al cliente.\n3. Tags de estado: se saca el del estado anterior y se pone el nuevo.",
+        "content": "## 5. Control humano y estados en ManyChat\n1. Relee el contacto: si un humano puso bot_activo = no mientras el agente pensaba, no se envía nada.\n2. Si hay derivación: **bot_activo = no** → campos (estado, motivo_derivacion) → **tag necesita_humano** → **flow de ManyChat que avisa al equipo** (Notify Admins + abrir y asignar en Live Chat) → mensaje al cliente (flow \"Enviar mensajes\").\n3. Tags de estado: se saca el del estado anterior y se pone el nuevo.",
         "height": 220,
         "width": 2600,
         "color": 2
@@ -1191,7 +1359,7 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        2900,
+        4000,
         -40
       ]
     },
@@ -1218,7 +1386,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2940,
+        4040,
         300
       ],
       "credentials": {
@@ -1235,14 +1403,14 @@
     },
     {
       "parameters": {
-        "jsCode": "// Junta la respuesta (del agente o de respaldo) con el estado real del contacto en\n// ManyChat, y arma lo que hay que guardar: campos, tags y flows.\nconst fuente = $('Interpretar respuesta del agente').isExecuted\n  ? 'Interpretar respuesta del agente'\n  : 'Armar respuesta de respaldo';\nconst r = $(fuente).first().json;\nconst cfg = $('Configuración Otormín').first().json;\nconst info = $input.first().json || {};\n\nconst ESTADOS = ['nuevo', 'en_conversacion', 'lead_caliente', 'visita_agendada', 'necesita_humano', 'cerrada', 'sin_respuesta'];\nconst configurado = (v) => Boolean(v) && !/COMPLETAR/i.test(String(v));\n\n// ¿Un humano apagó el bot mientras el agente pensaba? (si ManyChat no responde, se asume activo)\nconst campos = Array.isArray(info.data?.custom_fields) ? info.data.custom_fields : [];\nconst campoBot = campos.find((c) => c && c.name === 'bot_activo');\nconst valorBot = String(campoBot?.value ?? '').trim().toLowerCase();\nconst botActivoAhora = !['no', 'false', '0', 'off', 'n'].includes(valorBot);\n\n// Campos de ManyChat (bot_activo va aparte, primero, en \"Apagar bot\")\nconst camposManychat = [{ field_name: 'estado_conversacion', field_value: r.estado }];\nif (r.derivar) camposManychat.push({ field_name: 'motivo_derivacion', field_value: r.motivo_derivacion });\nif (r.auto_interes) camposManychat.push({ field_name: 'auto_interes', field_value: r.auto_interes });\n\nconst cambioEstado = r.estado !== r.estado_anterior || Boolean(r.es_primer_contacto);\nconst tagQuitar = r.estado !== r.estado_anterior && ESTADOS.includes(r.estado_anterior) ? r.estado_anterior : '';\n\n// ManyChat espera el subscriber_id numérico; si es muy largo se manda como texto para no perder dígitos\nconst sid = String(r.subscriber_id);\nconst subscriberIdApi = /^\\d{1,15}$/.test(sid) ? Number(sid) : sid;\n\nreturn [{\n  json: {\n    ...r,\n    subscriber_id_api: subscriberIdApi,\n    bot_activo_ahora: botActivoAhora,\n    campos_manychat: camposManychat,\n    cambio_estado: cambioEstado,\n    tag_quitar: tagQuitar,\n    tag_poner: r.estado,\n    notificar_equipo: Boolean(r.derivar) && configurado(cfg.FLOW_NOTIFICAR_HUMANO),\n    cerrar_conversacion: r.estado === 'cerrada' && configurado(cfg.FLOW_CERRAR_CONVERSACION),\n    texto_enviado: [r.mensaje1, r.mensaje2, r.mensaje3].filter(Boolean).join('\\n\\n'),\n  },\n}];\n"
+        "jsCode": "// Junta la respuesta (del agente o de respaldo) con el estado real del contacto en\n// ManyChat, y arma lo que hay que guardar: campos, tags y flows.\nconst fuente = $('Interpretar respuesta del agente').isExecuted\n  ? 'Interpretar respuesta del agente'\n  : 'Armar respuesta de respaldo';\nconst r = $(fuente).first().json;\nconst cfg = $('Configuración Otormín').first().json;\nconst info = $input.first().json || {};\n\nconst ESTADOS = ['nuevo', 'en_conversacion', 'lead_caliente', 'visita_agendada', 'necesita_humano', 'cerrada', 'sin_respuesta'];\nconst configurado = (v) => Boolean(v) && !/COMPLETAR/i.test(String(v));\n\n// ¿Un humano apagó el bot mientras el agente pensaba? (si ManyChat no responde, se asume activo)\nconst campos = Array.isArray(info.data?.custom_fields) ? info.data.custom_fields : [];\nconst campoBot = campos.find((c) => c && c.name === 'bot_activo');\nconst valorBot = String(campoBot?.value ?? '').trim().toLowerCase();\nconst botActivoAhora = !['no', 'false', '0', 'off', 'n'].includes(valorBot);\n\n// Campos de ManyChat (bot_activo va aparte, primero, en \"Apagar bot\")\nconst camposManychat = [{ field_name: 'estado_conversacion', field_value: r.estado }];\nif (r.derivar) camposManychat.push({ field_name: 'motivo_derivacion', field_value: r.motivo_derivacion });\nif (r.auto_interes) camposManychat.push({ field_name: 'auto_interes', field_value: r.auto_interes });\n\n// La respuesta va en campos que lee el flow \"Enviar mensajes\" de ManyChat (como en el video).\n// Solo se mandan los que tienen valor; el flow los borra al terminar.\nconst camposRespuesta = [];\n[r.mensaje1, r.mensaje2, r.mensaje3].forEach((texto, i) => {\n  if (texto) camposRespuesta.push({ field_name: `parte_${i + 1}`, field_value: texto });\n});\n(r.fotos || []).slice(0, 3).forEach((url, i) => camposRespuesta.push({ field_name: `foto_${i + 1}`, field_value: url }));\n\nconst cambioEstado = r.estado !== r.estado_anterior || Boolean(r.es_primer_contacto);\nconst tagQuitar = r.estado !== r.estado_anterior && ESTADOS.includes(r.estado_anterior) ? r.estado_anterior : '';\n\n// ManyChat espera el subscriber_id numérico; si es muy largo se manda como texto para no perder dígitos\nconst sid = String(r.subscriber_id);\nconst subscriberIdApi = /^\\d{1,15}$/.test(sid) ? Number(sid) : sid;\n\nreturn [{\n  json: {\n    ...r,\n    subscriber_id_api: subscriberIdApi,\n    bot_activo_ahora: botActivoAhora,\n    campos_manychat: camposManychat,\n    campos_respuesta: camposRespuesta,\n    cambio_estado: cambioEstado,\n    tag_quitar: tagQuitar,\n    tag_poner: r.estado,\n    notificar_equipo: Boolean(r.derivar) && configurado(cfg.FLOW_NOTIFICAR_HUMANO),\n    cerrar_conversacion: r.estado === 'cerrada' && configurado(cfg.FLOW_CERRAR_CONVERSACION),\n    texto_enviado: [r.mensaje1, r.mensaje2, r.mensaje3].filter(Boolean).join('\\n\\n'),\n  },\n}];\n"
       },
       "id": "6ebd75c6-d927-41d1-ab45-ff6d97c7f992",
       "name": "Preparar envío",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3160,
+        4260,
         300
       ]
     },
@@ -1257,7 +1425,7 @@
           },
           "conditions": [
             {
-              "id": "3cb66556-5963-4c7c-a607-15936c6fa454",
+              "id": "88534f18-67c6-4933-a61e-da5826721a88",
               "leftValue": "={{ $json.bot_activo_ahora }}",
               "rightValue": "",
               "operator": {
@@ -1276,7 +1444,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        3380,
+        4480,
         300
       ]
     },
@@ -1293,7 +1461,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.5,
       "position": [
-        3600,
+        4700,
         480
       ],
       "credentials": {
@@ -1315,7 +1483,7 @@
           },
           "conditions": [
             {
-              "id": "0b456fe8-ff05-4fec-ad9d-af92434a1471",
+              "id": "2e5e3b93-721c-4d59-a1c8-3e52f2508996",
               "leftValue": "={{ $('Preparar envío').first().json.derivar }}",
               "rightValue": "",
               "operator": {
@@ -1334,7 +1502,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        3600,
+        4700,
         300
       ]
     },
@@ -1356,7 +1524,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        3820,
+        4920,
         160
       ],
       "credentials": {
@@ -1388,7 +1556,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        4040,
+        5140,
         300
       ],
       "credentials": {
@@ -1413,7 +1581,7 @@
           },
           "conditions": [
             {
-              "id": "f54c8bb8-64b6-4df4-ad36-f799a223bb14",
+              "id": "7c835dab-0254-49c4-a88d-1e45c99224c1",
               "leftValue": "={{ $('Preparar envío').first().json.cambio_estado }}",
               "rightValue": "",
               "operator": {
@@ -1432,7 +1600,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        4260,
+        5360,
         300
       ]
     },
@@ -1447,7 +1615,7 @@
           },
           "conditions": [
             {
-              "id": "5a447d76-d82a-4d50-af31-fee9be88284e",
+              "id": "9711e82a-1b0a-4296-ab6e-9487f8451db1",
               "leftValue": "={{ $('Preparar envío').first().json.tag_quitar }}",
               "rightValue": "",
               "operator": {
@@ -1466,7 +1634,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        4480,
+        5580,
         160
       ]
     },
@@ -1488,7 +1656,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        4700,
+        5800,
         60
       ],
       "credentials": {
@@ -1520,7 +1688,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        4920,
+        6020,
         160
       ],
       "credentials": {
@@ -1545,7 +1713,7 @@
           },
           "conditions": [
             {
-              "id": "643f1c23-fbe7-4c79-aff1-68bbeb4e455d",
+              "id": "280c1ede-eb5e-4441-acec-2d42f3b2e308",
               "leftValue": "={{ $('Preparar envío').first().json.notificar_equipo }}",
               "rightValue": "",
               "operator": {
@@ -1564,7 +1732,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        5140,
+        6240,
         300
       ]
     },
@@ -1586,7 +1754,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        5360,
+        6460,
         160
       ],
       "credentials": {
@@ -1602,9 +1770,9 @@
     },
     {
       "parameters": {
-        "content": "## 6. Envío por la API de ManyChat (WhatsApp)\nmensaje1..3 con pausas cortas y después las fotos (máximo 3). Si una foto no se puede mandar como imagen, va el link como texto.\nSolo se responde dentro de la ventana de 24 h (siempre es así: el cliente acaba de escribir). Los seguimientos fuera de la ventana van con plantilla (workflow de inactividad).",
-        "height": 220,
-        "width": 2900,
+        "content": "## 6. Envío con el flow \"Enviar mensajes\" de ManyChat (como en el video)\n1. **setCustomFields**: guarda parte_1, parte_2, parte_3 (y foto_1..3 si el agente mandó fotos). Solo los que tienen valor.\n2. **sendFlow**: dispara el flow \"Enviar mensajes\", que manda parte_1, después parte_2 y parte_3 si tienen valor, después las fotos, y al final borra todos esos campos.\nSolo se responde dentro de la ventana de 24 h (el cliente acaba de escribir). Los seguimientos fuera de la ventana van con plantilla (workflow de inactividad).",
+        "height": 240,
+        "width": 1560,
         "color": 4
       },
       "id": "d6f2780b-ca60-4447-a6c4-37b3f52eff2a",
@@ -1612,190 +1780,62 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        5540,
-        -40
+        6640,
+        -80
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Configuración Otormín').first().json.MANYCHAT_API_URL }}/fb/sending/sendContent",
+        "url": "={{ $('Configuración Otormín').first().json.MANYCHAT_API_URL }}/fb/subscriber/setCustomFields",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Preparar envío').first().json.subscriber_id_api, data: { version: 'v2', content: { type: 'whatsapp', messages: [ { type: 'text', text: $('Preparar envío').first().json.mensaje1 } ] } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Preparar envío').first().json.subscriber_id_api, fields: $('Preparar envío').first().json.campos_respuesta }) }}",
         "options": {
           "timeout": 15000
         }
       },
-      "id": "d374b62a-e816-4c3c-a5f0-6a359d8dc835",
-      "name": "Enviar mensaje 1",
+      "id": "7d25adba-909c-4fd4-af22-e2a9520c4f1c",
+      "name": "Guardar respuesta en ManyChat (parte_1..3)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        5580,
-        300
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "otorminManychatApi",
-          "name": "ManyChat API"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 1500,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 3
-          },
-          "conditions": [
-            {
-              "id": "db2d9d14-20bd-4464-ab96-4da644588b26",
-              "leftValue": "={{ $('Preparar envío').first().json.mensaje2 }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "00cb9db5-fbe0-418c-aa9b-abcd449a5218",
-      "name": "¿Hay mensaje 2?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        5800,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "amount": "={{ $('Configuración Otormín').first().json.PAUSA_ENTRE_MENSAJES_SEGUNDOS }}"
-      },
-      "id": "046ae4d8-f0cd-4545-a7f2-90ef5a6cbf43",
-      "name": "Pausa antes del mensaje 2",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
-      "position": [
-        6020,
-        160
-      ],
-      "webhookId": "1c9e7a2b-4f3d-4a8e-b6c1-2e5f8a9d0c03"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $('Configuración Otormín').first().json.MANYCHAT_API_URL }}/fb/sending/sendContent",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Preparar envío').first().json.subscriber_id_api, data: { version: 'v2', content: { type: 'whatsapp', messages: [ { type: 'text', text: $('Preparar envío').first().json.mensaje2 } ] } } }) }}",
-        "options": {
-          "timeout": 15000
-        }
-      },
-      "id": "3e432910-d91b-4352-ac47-6469c722af0b",
-      "name": "Enviar mensaje 2",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        6240,
-        160
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "otorminManychatApi",
-          "name": "ManyChat API"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 1500,
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 3
-          },
-          "conditions": [
-            {
-              "id": "514b2a40-b81c-4aaf-a488-e4dc65e51062",
-              "leftValue": "={{ $('Preparar envío').first().json.mensaje3 }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "69e9177e-1d44-48dd-a6ec-c35f9a143e87",
-      "name": "¿Hay mensaje 3?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        6460,
-        160
-      ]
-    },
-    {
-      "parameters": {
-        "amount": "={{ $('Configuración Otormín').first().json.PAUSA_ENTRE_MENSAJES_SEGUNDOS }}"
-      },
-      "id": "728b1957-7581-4389-a3ae-e3eeb6b0508c",
-      "name": "Pausa antes del mensaje 3",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
       "position": [
         6680,
-        40
+        300
       ],
-      "webhookId": "2d0f8b3c-5a4e-4b9f-87d2-3f6a9b0e1d04"
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Configuración Otormín').first().json.MANYCHAT_API_URL }}/fb/sending/sendContent",
+        "url": "={{ $('Configuración Otormín').first().json.MANYCHAT_API_URL }}/fb/sending/sendFlow",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Preparar envío').first().json.subscriber_id_api, data: { version: 'v2', content: { type: 'whatsapp', messages: [ { type: 'text', text: $('Preparar envío').first().json.mensaje3 } ] } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Preparar envío').first().json.subscriber_id_api, flow_ns: $('Configuración Otormín').first().json.FLOW_ENVIAR_MENSAJES }) }}",
         "options": {
           "timeout": 15000
         }
       },
-      "id": "3583e970-c426-4cea-a769-359af3b837f0",
-      "name": "Enviar mensaje 3",
+      "id": "d8e614fd-8ba2-424d-ac40-3868902c86c7",
+      "name": "Disparar flow \"Enviar mensajes\"",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
         6900,
-        40
+        300
       ],
       "credentials": {
         "httpHeaderAuth": {
@@ -1804,7 +1844,7 @@
         }
       },
       "retryOnFail": true,
-      "maxTries": 3,
+      "maxTries": 4,
       "waitBetweenTries": 1500,
       "onError": "continueRegularOutput"
     },
@@ -1900,90 +1940,6 @@
       "waitBetweenTries": 1500,
       "onError": "continueRegularOutput",
       "executeOnce": true
-    },
-    {
-      "parameters": {
-        "jsCode": "// Una salida por foto (máximo 3). Si no hay fotos no sale nada y el workflow termina.\nconst r = $('Preparar envío').first().json;\nreturn (r.fotos || []).slice(0, 3).map((url) => ({\n  json: { url, subscriber_id_api: r.subscriber_id_api },\n}));\n"
-      },
-      "id": "c441fbe5-42ea-4b79-a4cb-e0d838823d4c",
-      "name": "Separar fotos",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        7780,
-        300
-      ],
-      "executeOnce": true
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $('Configuración Otormín').first().json.MANYCHAT_API_URL }}/fb/sending/sendContent",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ subscriber_id: $json.subscriber_id_api, data: { version: 'v2', content: { type: 'whatsapp', messages: [ { type: 'image', url: $json.url } ] } } }) }}",
-        "options": {
-          "timeout": 15000,
-          "batching": {
-            "batch": {
-              "batchSize": 1,
-              "batchInterval": 800
-            }
-          }
-        }
-      },
-      "id": "4d92efca-2003-4a0c-ad72-74b7783c8c94",
-      "name": "Enviar foto",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        8000,
-        300
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "otorminManychatApi",
-          "name": "ManyChat API"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 2,
-      "waitBetweenTries": 1500,
-      "onError": "continueErrorOutput"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $('Configuración Otormín').first().json.MANYCHAT_API_URL }}/fb/sending/sendContent",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Separar fotos').item.json.subscriber_id_api, data: { version: 'v2', content: { type: 'whatsapp', messages: [ { type: 'text', text: $('Separar fotos').item.json.url } ] } } }) }}",
-        "options": {
-          "timeout": 15000
-        }
-      },
-      "id": "2901de0d-5a73-4b65-a421-5b1dd84ddc76",
-      "name": "Enviar foto como link",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        8220,
-        460
-      ],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "otorminManychatApi",
-          "name": "ManyChat API"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 1500,
-      "onError": "continueRegularOutput"
     }
   ],
   "pinData": {},
@@ -2025,7 +1981,7 @@
       "main": [
         [
           {
-            "node": "Marcar mensaje recibido (Redis)",
+            "node": "¿Es un aviso del vendedor?",
             "type": "main",
             "index": 0
           }
@@ -2033,6 +1989,24 @@
         [
           {
             "node": "Fin: pedido sin contacto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es un aviso del vendedor?": {
+      "main": [
+        [
+          {
+            "node": "Registrar aviso del vendedor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marcar mensaje recibido (Redis)",
             "type": "main",
             "index": 0
           }
@@ -2083,7 +2057,7 @@
       "main": [
         [
           {
-            "node": "¿Trae audio o imagen?",
+            "node": "¿Trae audios o fotos?",
             "type": "main",
             "index": 0
           }
@@ -2097,11 +2071,11 @@
         ]
       ]
     },
-    "¿Trae audio o imagen?": {
+    "¿Trae audios o fotos?": {
       "main": [
         [
           {
-            "node": "Descargar adjunto",
+            "node": "Separar adjuntos",
             "type": "main",
             "index": 0
           }
@@ -2109,6 +2083,17 @@
         [
           {
             "node": "Texto del cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separar adjuntos": {
+      "main": [
+        [
+          {
+            "node": "Descargar adjunto",
             "type": "main",
             "index": 0
           }
@@ -2216,33 +2201,11 @@
         ]
       ]
     },
-    "Texto del cliente": {
-      "main": [
-        [
-          {
-            "node": "Preparar payload del buffer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Respaldo: no se pudo descargar": {
-      "main": [
-        [
-          {
-            "node": "Preparar payload del buffer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Texto desde audio": {
       "main": [
         [
           {
-            "node": "Preparar payload del buffer",
+            "node": "Juntar adjuntos",
             "type": "main",
             "index": 0
           }
@@ -2253,9 +2216,9 @@
       "main": [
         [
           {
-            "node": "Preparar payload del buffer",
+            "node": "Juntar adjuntos",
             "type": "main",
-            "index": 0
+            "index": 1
           }
         ]
       ]
@@ -2264,14 +2227,58 @@
       "main": [
         [
           {
-            "node": "Preparar payload del buffer",
+            "node": "Juntar adjuntos",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Respaldo: imagen no analizada": {
+      "main": [
+        [
+          {
+            "node": "Juntar adjuntos",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Adjunto no soportado": {
+      "main": [
+        [
+          {
+            "node": "Juntar adjuntos",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Respaldo: no se pudo descargar": {
+      "main": [
+        [
+          {
+            "node": "Juntar adjuntos",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Juntar adjuntos": {
+      "main": [
+        [
+          {
+            "node": "Unir adjuntos",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Respaldo: imagen no analizada": {
+    "Unir adjuntos": {
       "main": [
         [
           {
@@ -2282,7 +2289,7 @@
         ]
       ]
     },
-    "Adjunto no soportado": {
+    "Texto del cliente": {
       "main": [
         [
           {
@@ -2297,7 +2304,25 @@
       "main": [
         [
           {
+            "node": "¿Usar buffer de n8n?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Usar buffer de n8n?": {
+      "main": [
+        [
+          {
             "node": "Agregar al buffer (Redis)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Contexto del agente",
             "type": "main",
             "index": 0
           }
@@ -2632,7 +2657,7 @@
         ],
         [
           {
-            "node": "Enviar mensaje 1",
+            "node": "Guardar respuesta en ManyChat (parte_1..3)",
             "type": "main",
             "index": 0
           }
@@ -2643,94 +2668,25 @@
       "main": [
         [
           {
-            "node": "Enviar mensaje 1",
+            "node": "Guardar respuesta en ManyChat (parte_1..3)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Enviar mensaje 1": {
+    "Guardar respuesta en ManyChat (parte_1..3)": {
       "main": [
         [
           {
-            "node": "¿Hay mensaje 2?",
+            "node": "Disparar flow \"Enviar mensajes\"",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "¿Hay mensaje 2?": {
-      "main": [
-        [
-          {
-            "node": "Pausa antes del mensaje 2",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Registrar respuesta en Postgres",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Pausa antes del mensaje 2": {
-      "main": [
-        [
-          {
-            "node": "Enviar mensaje 2",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Enviar mensaje 2": {
-      "main": [
-        [
-          {
-            "node": "¿Hay mensaje 3?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "¿Hay mensaje 3?": {
-      "main": [
-        [
-          {
-            "node": "Pausa antes del mensaje 3",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Registrar respuesta en Postgres",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Pausa antes del mensaje 3": {
-      "main": [
-        [
-          {
-            "node": "Enviar mensaje 3",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Enviar mensaje 3": {
+    "Disparar flow \"Enviar mensajes\"": {
       "main": [
         [
           {
@@ -2757,47 +2713,6 @@
         [
           {
             "node": "Cerrar conversación (flow de ManyChat)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Separar fotos",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Cerrar conversación (flow de ManyChat)": {
-      "main": [
-        [
-          {
-            "node": "Separar fotos",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Separar fotos": {
-      "main": [
-        [
-          {
-            "node": "Enviar foto",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Enviar foto": {
-      "main": [
-        [],
-        [
-          {
-            "node": "Enviar foto como link",
             "type": "main",
             "index": 0
           }

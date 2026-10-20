@@ -1,18 +1,24 @@
 # Puesta en marcha: conectar ManyChat y n8n (Otormín)
 
-Esta guía va de cero a "el bot contesta por WhatsApp y el equipo atiende desde el Inbox de ManyChat".
+Esta guía arma la conexión **igual que el video de Nexumi** ("Conectar tu agente de n8n a ManyChat"), con lo que necesita Otormín:
+derivación a humano, estados, `bot_activo`, Postgres, inactividad y errores.
 Seguila en orden: cada paso usa datos del anterior.
 
 ```
 Cliente (WhatsApp)
-   │  escribe
+   │ escribe uno o varios mensajes
    ▼
-ManyChat ── Default Reply ──► External Request (POST) ──► n8n /webhook/otormin-manychat
-   ▲                                                         │ buffer → audio/imagen → agente IA
-   │                                                         ▼
-   └──────────── API de ManyChat (sendContent, campos, tags, sendFlow) ◄──┘
-                         │
-                         └─► flow "Derivar a humano": abre el chat en el Inbox, lo asigna y avisa al equipo
+ManyChat ─ flow "Recibir mensajes"
+   │  junta los mensajes en respuesta_definitiva, espera 10 s,
+   │  saca los saltos de línea (ChatGPT) y hace la Solicitud externa (POST)
+   ▼
+n8n /webhook/otormin-manychat ── responde "ok" al instante
+   │  audios → Whisper · fotos → GPT-4o · texto → agente Otormín (stock, cuotas, agenda, pedir_humano)
+   ▼
+API de ManyChat
+   ├─ setCustomFields: parte_1, parte_2, parte_3 (y foto_1..3), estado, motivo...
+   ├─ sendFlow "Derivar a humano" (si corresponde): abre y asigna el chat en el Inbox y avisa al equipo
+   └─ sendFlow "Enviar mensajes": ManyChat le manda al cliente parte_1, parte_2, parte_3 y borra los campos
 ```
 
 ---
@@ -21,14 +27,15 @@ ManyChat ── Default Reply ──► External Request (POST) ──► n8n /w
 
 | Qué | Para qué |
 |---|---|
-| **ManyChat Pro** (verificalo en tu plan) | API, External Request y Live Chat con equipo |
+| **ManyChat Pro** (verificalo en tu plan) | API, Solicitud externa y Live Chat con equipo |
 | **Número de WhatsApp conectado a ManyChat** | Canal del bot |
+| **Integración de OpenAI en ManyChat** | Paso "sacar saltos de línea" del flow, como en el video |
 | **Servidor Linux con Docker** (2 GB de RAM alcanzan) y un **dominio** (ej. `bot.otormin.com.uy`) apuntando a su IP, con los puertos 80 y 443 abiertos | n8n 24/7 con HTTPS. ManyChat exige `https` |
-| **API key de OpenAI** | Agente, transcripción de audios (Whisper) y análisis de fotos |
-| **Cuenta de Google** | Planilla de stock (Sheets) y agenda de visitas (Calendar) |
-| **Una casilla para los avisos** (SMTP: Gmail con "contraseña de aplicación", Zoho, etc.) | Avisos de error al admin |
+| **API key de OpenAI** | Agente, audios (Whisper) y fotos (GPT-4o) en n8n |
+| **Cuenta de Google** | Stock (Sheets) y agenda de visitas (Calendar) |
+| **Una casilla para los avisos** (SMTP) | Avisos de error al admin |
 
-> **Importante sobre WhatsApp en "coexistencia"** (mismo número en la app WhatsApp Business del celular y en ManyChat): lo que un vendedor responde **desde la app del celular no lo ve ManyChat**, así que el bot no se entera y puede pisarlo. Respondan siempre desde el Inbox de ManyChat (web o app de ManyChat).
+> **WhatsApp en "coexistencia"** (mismo número en la app WhatsApp Business del celular y en ManyChat): lo que un vendedor responde **desde la app del celular no lo ve ManyChat** y el bot lo puede pisar. Respondan siempre desde el Inbox de ManyChat (web o app de ManyChat).
 
 ---
 
@@ -42,290 +49,320 @@ docker compose --profile https up -d
 docker compose ps    # todos "healthy" después de ~1 minuto
 ```
 
-- La primera vez Postgres crea las dos bases (`n8n` y `otormin`) y aplica `sql/schema.sql` solo.
-- Si ya tenés un proxy HTTPS propio (Nginx, Traefik), levantá sin Caddy: `docker compose up -d`, y apuntá tu proxy a `127.0.0.1:5678`.
-- Para ver logs: `docker compose logs -f n8n n8n-worker`.
+- La primera vez Postgres crea las bases `n8n` y `otormin` y aplica `sql/schema.sql` solo.
+- Si ya tenés un proxy HTTPS propio, levantá sin Caddy (`docker compose up -d`) y apuntá tu proxy a `127.0.0.1:5678`.
+- Logs: `docker compose logs -f n8n n8n-worker`.
 
 ---
 
 ## 2. Usuario de n8n y API key
 
 1. Entrá a `https://TU_DOMINIO` y creá el usuario administrador.
-2. **Settings → n8n API → Create an API key**. Copiala: la usa el workflow de errores para leer qué cliente quedó sin respuesta.
+2. **Settings → n8n API → Create an API key**. Copiala: la usa el workflow de errores.
 
 ---
 
 ## 3. Credenciales en n8n (con estos nombres EXACTOS)
 
-En **Overview → Credentials → Create credential**. Si el nombre coincide exacto, al importar los workflows n8n las vincula solas.
+**Overview → Credentials → Create credential**. Si el nombre coincide exacto, al importar los workflows n8n las vincula solas.
 
-| Nombre exacto | Tipo de credencial | Qué cargar |
+| Nombre exacto | Tipo | Qué cargar |
 |---|---|---|
 | `ManyChat API` | Header Auth | Name: `Authorization` · Value: `Bearer TU_TOKEN_DE_MANYCHAT` (paso 5.2) |
-| `ManyChat webhook (clave)` | Header Auth | Name: `X-Otormin-Token` · Value: una clave larga inventada (`openssl rand -hex 24`). La misma va en ManyChat (paso 6.7) |
+| `ManyChat webhook (clave)` | Header Auth | Name: `X-Otormin-Token` · Value: una clave larga inventada (`openssl rand -hex 24`). La misma va en la Solicitud externa (paso 6.1) |
 | `OpenAI Otormín` | OpenAI | API key |
-| `Postgres Otormín` | Postgres | Host `postgres` · Database `otormin` · User y Password los del `.env` · Port `5432` · SSL `Disable` |
-| `Redis Otormín` | Redis | Host `redis` · Port `6379` · Password `REDIS_PASSWORD` del `.env` · **Database Number `1`** |
-| `Google Sheets Otormín` | Google Sheets OAuth2 API | Conectar con la cuenta de Google que tiene la planilla de stock |
-| `Google Calendar Otormín` | Google Calendar OAuth2 API | Conectar con la cuenta del calendario del local |
-| `SMTP avisos Otormín` | SMTP | Datos del servidor de correo para los avisos |
+| `Postgres Otormín` | Postgres | Host `postgres` · Database `otormin` · User/Password del `.env` · Port `5432` · SSL `Disable` |
+| `Redis Otormín` | Redis | Host `redis` · Port `6379` · Password `REDIS_PASSWORD` · **Database Number `1`** |
+| `Google Sheets Otormín` | Google Sheets OAuth2 API | Cuenta con la planilla de stock |
+| `Google Calendar Otormín` | Google Calendar OAuth2 API | Cuenta del calendario del local |
+| `SMTP avisos Otormín` | SMTP | Servidor de correo para los avisos |
 | `n8n API (errores)` | n8n API | API Key del paso 2 · Base URL `http://n8n:5678/api/v1` |
 
-> El token de ManyChat y las demás claves viven solo en las credenciales de n8n (encriptadas con `N8N_ENCRYPTION_KEY`). Los JSON de los workflows no tienen ninguna clave.
+> El token de ManyChat (el que en el video se saca de **Configuración → API**) vive solo en la credencial de n8n. Los JSON de los workflows no tienen ninguna clave.
 
 ---
 
 ## 4. Importar los workflows (en este orden)
 
-En **Overview → Create workflow → menú ⋯ → Import from File**, después **Save**.
+**Overview → Create workflow → menú ⋯ → Import from File**, y después **Save**.
 
 1. **`workflows/otormin_errores.json`**
-   - Abrí el nodo **Configuración de avisos** y completá `EMAIL_ADMIN` y `EMAIL_REMITENTE`. `FLOW_NOTIFICAR_HUMANO` lo completás en el paso 6.2.
-   - **Activalo (Publish).** En n8n 2.x un workflow de errores que no está activo **no se ejecuta**.
+   - En **Configuración de avisos** completá `EMAIL_ADMIN` y `EMAIL_REMITENTE`. Los dos `FLOW_...` los cargás en el paso 6.4.
+   - **Activalo (Publish).** En n8n 2.x, si el workflow de errores no está activo, no se ejecuta.
 2. **`workflows/otormin_inactividad.json`**
-   - En **Settings del workflow → Error workflow** elegí "Otormín - Errores (aviso al admin)".
+   - **Settings → Error workflow** → "Otormín - Errores (aviso al admin)".
    - Activalo.
 3. **`workflows/otormin_bot.json`**
-   - En **Settings → Error workflow** elegí "Otormín - Errores (aviso al admin)".
-   - **Todavía no lo actives**: primero completá ManyChat (pasos 5 y 6) y la configuración (paso 7).
+   - **Settings → Error workflow** → "Otormín - Errores (aviso al admin)".
+   - **Todavía no lo actives** (primero los pasos 5 a 7).
 
-Después de importar, revisá que ningún nodo muestre el aviso rojo de credencial faltante. Si alguno quedó sin vincular, abrilo y elegí la credencial a mano.
+Revisá que ningún nodo muestre el aviso rojo de credencial faltante. Si reimportás el bot más adelante, **borrá o desactivá antes el viejo**: dos workflows con el mismo webhook se pisan.
 
-> Si más adelante reimportás el bot, **borrá o desactivá antes el viejo**. Dos workflows con el mismo webhook (`otormin-manychat`) se pisan.
+> **Igual que en el video:** el primer nodo es el Webhook, y ManyChat recibe un "ok" al instante. El video usa un nodo *Respond to Webhook* justo después del webhook; acá el Webhook está en **Respond: Immediately**, que hace lo mismo. La respuesta real llega después, por los dos nodos HTTP del final (*setCustomFields* + *sendFlow*).
 
 ---
 
 ## 5. ManyChat: preparar la cuenta
 
 ### 5.1 Conectar WhatsApp
-**Settings → Channels → WhatsApp → Connect** y seguí el asistente de Meta. Si ya está conectado, seguí.
+**Configuración → Canales → WhatsApp → Conectar** y seguí el asistente de Meta.
 
 ### 5.2 Token de la API
-**Settings → API → Generate your API Key**. Copialo y pegalo en la credencial `ManyChat API` de n8n como `Bearer TOKEN` (con la palabra Bearer y un espacio).
+**Configuración → API → Generar**. Pegalo en la credencial `ManyChat API` de n8n como `Bearer TOKEN`.
 
-### 5.3 Campos de usuario
-**Settings → Fields → User Fields → + New Field**. Los nombres van en minúscula y exactos:
+### 5.3 Campos personalizados
+**Configuración → Campos → + Nuevo campo de usuario**, todos de tipo **Texto**, con estos nombres exactos:
 
-| Campo | Tipo | Uso |
+| Campo | Lo usa | Para qué |
 |---|---|---|
-| `bot_activo` | Text | `si` / `no`. **Vacío cuenta como `si`** (contactos nuevos). Con `no`, n8n no responde |
-| `estado_conversacion` | Text | Lo escribe n8n: `nuevo`, `en_conversacion`, `lead_caliente`, `visita_agendada`, `necesita_humano`, `cerrada`, `sin_respuesta` |
-| `motivo_derivacion` | Text | Resumen de por qué se derivó (qué quiere, qué auto, por qué) |
-| `auto_interes` | Text | Vehículo que le interesa al cliente |
+| `respuesta_definitiva` | Flow "Recibir mensajes" | Va juntando los mensajes seguidos del cliente (como en el video) |
+| `mensaje_a_enviar` | Flow "Recibir mensajes" | Copia de lo juntado: se limpia y se manda a n8n (ver nota del paso 6.1) |
+| `parte_1`, `parte_2`, `parte_3` | n8n → flow "Enviar mensajes" | La respuesta del bot partida en hasta 3 burbujas (como en el video) |
+| `foto_1`, `foto_2`, `foto_3` | n8n → flow "Enviar mensajes" | Fotos de autos del stock que manda el bot |
+| `bot_activo` | Todo | `si` / `no`. **Vacío cuenta como `si`**. Con `no`, el bot no responde |
+| `estado_conversacion` | n8n | `nuevo`, `en_conversacion`, `lead_caliente`, `visita_agendada`, `necesita_humano`, `cerrada`, `sin_respuesta` |
+| `motivo_derivacion` | n8n | Por qué se derivó (qué quiere, qué auto, por qué) |
+| `auto_interes` | n8n | Vehículo que le interesa al cliente |
 
-> Si falta un campo, la llamada de la API que lo setea falla. `bot_activo` va en una llamada aparte, primero, para que la derivación nunca dependa de los otros campos.
+### 5.4 Etiquetas (tags)
+**Configuración → Etiquetas**: `nuevo`, `en_conversacion`, `lead_caliente`, `visita_agendada`, `necesita_humano`, `cerrada`, `sin_respuesta`.
+n8n deja un solo tag de estado por contacto (saca el anterior y pone el nuevo). Así podés filtrar el Inbox por estado.
 
-### 5.4 Tags
-**Settings → Tags → + New Tag**: `nuevo`, `en_conversacion`, `lead_caliente`, `visita_agendada`, `necesita_humano`, `cerrada`, `sin_respuesta`.
-n8n deja **un solo tag de estado por contacto** (saca el anterior y pone el nuevo). Así podés filtrar el Inbox y los contactos por estado.
+### 5.5 Integración de OpenAI (para el paso de ChatGPT del video)
+**Configuración → Integraciones → OpenAI → Conectar** con una API key de OpenAI. Puede ser la misma que usa n8n.
 
-### 5.5 Comportamiento del Live Chat
-En **Settings → Live Chat** (puede figurar como *Inbox* o *Live Chat Behavior*):
-- **Pausa de automatización al responder:** cuando un agente escribe desde el Live Chat, ManyChat pausa las automatizaciones de ese contacto (30 min por defecto). Mientras dura, el Default Reply no se dispara y n8n no recibe nada. **Recomendado: 2 horas.** Es la red de seguridad para cuando un vendedor se mete sin derivar.
-- **Apertura de conversaciones:** elegí que la conversación **se abra explícitamente** (no "cualquier mensaje abre la conversación"). Así en *Open* quedan solo los chats que el bot derivó, y el resto igual se puede leer en *Closed* o *All*.
-- Que cada vendedor tenga la **app de ManyChat** con las notificaciones activadas.
+### 5.6 Comportamiento del Live Chat
+**Configuración → Live Chat** (o *Inbox*):
+- **Pausa de automatización al responder:** cuando un agente escribe desde el Live Chat, ManyChat pausa las automatizaciones de ese contacto. **Recomendado: 2 horas.**
+- **Apertura de conversaciones:** que la conversación **se abra explícitamente**. Así en *Abiertas* quedan solo los chats que el bot derivó, y el resto igual se lee en *Cerradas* o *Todas*.
+- Cada vendedor con la **app de ManyChat** y las notificaciones activadas.
 
 ---
 
-## 6. ManyChat: crear los flows
+## 6. ManyChat: los flows
 
-En **Automation → + New Automation**. Ponele el nombre indicado y **Publish** al terminar.
+**Automatización → + Nueva automatización**. Al terminar cada uno, **Publicar**.
 
-### 6.1 Flow "Bot IA - Derivar a humano" (lo dispara n8n)
-Sin trigger. Un bloque **Actions** con:
-1. **Live Chat → Mark conversation as Open**
-2. **Live Chat → Assign conversation** → el equipo de ventas o un vendedor (o round robin)
-3. **Notify Admins** (Notificar a administradores) → app y/o email. Texto sugerido:
+### 6.1 Flow "Recibir mensajes" (el del video, con dos agregados)
+
+**Disparador:** *El usuario envía un mensaje de WhatsApp*.
+Para que tome **todos** los mensajes: **Configuración → WhatsApp → Respuesta predeterminada** → elegí este flow. Dejalo en **"Siempre"** y verificá que el disparador quede **activado (azul)**: viene desactivado y eso suele confundir (lo dice el video).
+
+Pasos, en orden:
+
+```
+[1] Condición: bot_activo es "no"
+      ├─ Sí → (fin: lo atiende un humano, el bot no hace nada)
+      └─ No ↓
+[2] Condición: respuesta_definitiva tiene cualquier valor
+      ├─ No → Acción: Establecer campo respuesta_definitiva = {{Última entrada de texto}}
+      └─ Sí → Acción: Establecer campo respuesta_definitiva = {{respuesta_definitiva}}, {{Última entrada de texto}}
+[3] Retraso inteligente (Smart Delay): 10 segundos
+[4] Condición: respuesta_definitiva tiene cualquier valor
+      └─ No → (fin: otro mensaje ya se encargó)
+[5] Acción: Establecer campo mensaje_a_enviar = {{respuesta_definitiva}}
+    Acción: Borrar campo respuesta_definitiva
+[6] Acción de ChatGPT (OpenAI): sacar los saltos de línea de mensaje_a_enviar → guardar en mensaje_a_enviar
+[7] Condición: mensaje_a_enviar tiene cualquier valor
+      └─ No → (fin)
+[8] Solicitud externa (POST) a n8n  ← ver detalle abajo
+[9] Acción: Borrar campo mensaje_a_enviar
+```
+
+**Cómo funciona el paso [2]:** el cliente escribe "Hola" y se guarda "Hola". Si a los 3 segundos escribe "¿cómo estás?", el flow vuelve a arrancar. Como `respuesta_definitiva` ya tiene valor, va por arriba y queda "Hola, ¿cómo estás?". Recién cuando pasan 10 segundos sin mensajes nuevos, se manda todo junto.
+
+**Los dos agregados respecto del video:**
+- **[1] `bot_activo`:** si un humano está atendiendo, el bot no junta ni manda nada.
+- **[5] Copiar a `mensaje_a_enviar` antes del paso de ChatGPT:** en el video, si el cliente escribe justo mientras ChatGPT limpia el texto, ese mensaje se pisa y se pierde. Con la copia, el mensaje nuevo arranca una vuelta nueva y no se pierde nada.
+
+**Prompt del paso [6] (ChatGPT):**
+```
+Devolvé exactamente el mismo texto que te paso, sin cambiar, agregar, traducir ni corregir nada,
+con una sola diferencia: reemplazá cada salto de línea por un espacio.
+No modifiques los links (URLs). No pongas comillas ni explicaciones.
+Texto: {{mensaje_a_enviar}}
+```
+Guardá la respuesta en el campo `mensaje_a_enviar`. Como dice el video, sin este paso un mensaje con saltos de línea rompe la Solicitud externa.
+
+**Paso [8], la Solicitud externa** (*Acción → Automatización → Realizar una solicitud externa*):
+- **Tipo de solicitud:** `POST`
+- **URL:** la **Production URL** del nodo *Webhook ManyChat* de n8n: `https://TU_DOMINIO/webhook/otormin-manychat`. No uses la que dice `/webhook-test/`.
+- **Encabezados:**
+  - `X-Otormin-Token` = la misma clave de la credencial `ManyChat webhook (clave)`.
+  - Opcional, como en el video: `mensaje` = `{{mensaje_a_enviar}}`. n8n lee primero el cuerpo, porque los encabezados no llevan bien los acentos.
+- **Cuerpo:** **Full Contact Data** (botón *Agregar datos completos del contacto*), igual que en el video. Ahí viajan el ID del contacto, el nombre, el teléfono, `mensaje_a_enviar` y `bot_activo`.
+- **Respuesta:** nada. n8n contesta "ok" al instante y la respuesta del bot llega por el flow "Enviar mensajes".
+- **Probar:** tiene que dar **200** y `{"status":"ok"}`.
+
+> **Audios y fotos:** cuando el cliente manda un audio o una foto, la *Última entrada de texto* trae la URL del archivo. Por eso `respuesta_definitiva` puede quedar como `hola, https://…/audio.ogg, https://…/foto.jpg`. n8n separa cada adjunto, transcribe los audios, analiza las fotos y lo junta todo en orden antes de pasárselo al agente.
+
+**Revisá que ninguna otra automatización responda mensajes de WhatsApp** (keywords, bienvenida, pasos de IA de ManyChat). Si no, el cliente recibe dos respuestas.
+
+### 6.2 Flow "Enviar mensajes" (el segundo del video)
+Sin disparador: lo dispara n8n con `sendFlow`.
+
+```
+[1] Mensaje de WhatsApp: {{parte_1}}
+[2] Condición: parte_2 tiene cualquier valor → Sí: Mensaje {{parte_2}}
+[3] Condición: parte_3 tiene cualquier valor → Sí: Mensaje {{parte_3}}
+[4] Condición: foto_1 tiene cualquier valor → Sí: enviar foto_1   (ídem foto_2 y foto_3)
+[5] Acción: Borrar campos parte_1, parte_2, parte_3, foto_1, foto_2, foto_3
+```
+
+- Entre burbujas podés poner un **Retraso inteligente de 1 a 2 segundos** o el indicador de "escribiendo", para que parezca una persona.
+- **Fotos:** si el bloque de imagen de tu cuenta acepta una URL desde un campo, usalo con `{{foto_1}}`. Si no, mandá un mensaje de texto con `{{foto_1}}` y WhatsApp muestra la vista previa. Las `foto_url` del stock tienen que ser links directos y públicos.
+- **El borrado del paso [5] va siempre al final**, por cualquier camino. El video lo hace por ramas (si no hay parte 2, borra la 1; si hay 3, borra las tres). Borrar todo al final es lo mismo y es más simple.
+
+### 6.3 Flow "Derivar a humano" (lo dispara n8n)
+Sin disparador. Un bloque de **Acciones**:
+1. **Live Chat → Marcar conversación como abierta**
+2. **Live Chat → Asignar conversación** → equipo de ventas o un vendedor
+3. **Notificar a administradores** → app y/o email. Texto sugerido:
    `Cliente {{First Name}} ({{Phone}}) necesita un asesor. Motivo: {{motivo_derivacion}}. Auto: {{auto_interes}}`
 
-**No pongas mensajes al cliente en este flow**: el mensaje lo manda n8n ("un asesor te contacta enseguida").
+**Sin mensajes al cliente**: el aviso "un asesor te contacta enseguida" lo manda n8n por "Enviar mensajes". n8n lo dispara **después** de poner `bot_activo = no`, el tag `necesita_humano` y el `motivo_derivacion`.
 
-### 6.2 Cómo sacar el `flow_ns` de un flow
-n8n dispara los flows por su identificador (`flow_ns`). Tenés dos formas de sacarlo:
-- **Desde la URL**: abrí el flow en el editor. La URL tiene un tramo `content20XXXXXXXXXXXX_XXXXXX`, y eso es el `flow_ns`.
-- **Por la API**:
+### 6.4 Cómo sacar el ID de cada flow (`flow_ns`)
+Es lo que el video muestra como "el ID del flujo" que va en el nodo HTTP. Hay dos formas:
+- **Desde la URL:** abrí el flow en el editor. La dirección tiene un tramo `content20XXXXXXXXXXXX_XXXXXX`, y eso es el ID.
+- **Por la API:**
   ```bash
   curl -s https://api.manychat.com/fb/page/getFlows -H "Authorization: Bearer TU_TOKEN" | python3 -m json.tool
   ```
-  Buscá el flow por nombre y copiá el campo `ns`.
 
-Pegá el `flow_ns` de "Derivar a humano" en:
-- `FLOW_NOTIFICAR_HUMANO` del nodo **Configuración Otormín** (workflow del bot).
-- `FLOW_NOTIFICAR_HUMANO` del nodo **Configuración de avisos** (workflow de errores).
+Dónde va cada ID:
 
-### 6.3 Flow "Bot IA - Reactivar bot" (lo usa el vendedor al terminar)
-Bloque **Actions**:
-1. **Set Custom Field** `bot_activo` = `si`
-2. **Set Custom Field** `estado_conversacion` = `en_conversacion`
-3. **Remove Tag** `necesita_humano` · **Add Tag** `en_conversacion`
-4. (opcional) **Live Chat → Mark conversation as Closed**
+| Flow | Variable | Nodo de n8n |
+|---|---|---|
+| Enviar mensajes | `FLOW_ENVIAR_MENSAJES` | **Configuración Otormín** (bot) **y** **Configuración de avisos** (errores) |
+| Derivar a humano | `FLOW_NOTIFICAR_HUMANO` | **Configuración Otormín** **y** **Configuración de avisos** |
+| Cerrar conversación (opcional) | `FLOW_CERRAR_CONVERSACION` | **Configuración Otormín** |
+| Seguimiento (opcional) | `FLOW_SEGUIMIENTO_PLANTILLA` | **Configuración inactividad** |
 
-Hay dos formas de reactivar el bot desde el Inbox:
-- **Acción rápida:** en el chat, el botón de automatizaciones del cuadro de texto (rayo o "Send Flow") → elegir **"Bot IA - Reactivar bot"**.
-- **A mano:** en el panel derecho del contacto → **Fields** → `bot_activo` → `si`.
+### 6.5 Flow "Reactivar bot" (lo usa el vendedor al terminar)
+Acciones:
+1. Establecer `bot_activo` = `si` y `estado_conversacion` = `en_conversacion`.
+2. Quitar la etiqueta `necesita_humano` y agregar `en_conversacion`.
+3. **Solicitud externa** POST a la misma URL de n8n, con el encabezado `X-Otormin-Token`. Cuerpo JSON:
+   ```json
+   { "subscriber_id": "{{Contact Id}}", "evento": "reactivar" }
+   ```
+   Sirve para que Postgres sepa que el bot volvió.
+4. (opcional) **Live Chat → Marcar conversación como cerrada**.
 
-Si el chat muestra el ícono de pausa, el bot vuelve a hablar recién cuando termina la pausa (o cuando la reanudás desde ahí).
+Hay dos formas de reactivar desde el Inbox:
+- **Acción rápida:** en el chat, botón de automatizaciones del cuadro de texto → enviar el flow **"Reactivar bot"**.
+- **A mano:** en el panel del contacto, campo `bot_activo` = `si`.
 
-**Reseteo automático:** si nadie lo reactiva, el workflow de inactividad pone `bot_activo = si` a las **12 horas** de la derivación (`HORAS_REACTIVACION_BOT` en "Configuración inactividad"). Solo lo hace si en ManyChat sigue en `no`.
+**Reseteo automático:** si nadie lo reactiva, a las **12 h** de la derivación el workflow de inactividad pone `bot_activo = si` (`HORAS_REACTIVACION_BOT`).
 
-### 6.4 Flow "Bot IA - Tomar conversación" (opcional)
-Para cuando un vendedor quiere meterse en un chat que el bot no derivó. Bloque **Actions**:
-- `bot_activo` = `no`
-- `estado_conversacion` = `necesita_humano`
-- **Add Tag** `necesita_humano`
-- **Mark conversation as Open** y **Assign conversation** (a sí mismo)
+### 6.6 Flow "Tomar conversación" (opcional)
+Para cuando un vendedor quiere meterse en un chat que el bot no derivó:
+1. `bot_activo` = `no`, `estado_conversacion` = `necesita_humano`, etiqueta `necesita_humano`.
+2. **Marcar conversación como abierta** y **Asignar conversación** (a sí mismo).
+3. **Solicitud externa** POST a n8n con `{ "subscriber_id": "{{Contact Id}}", "evento": "tomar" }`. El reseteo automático cuenta las horas desde ahí.
 
-n8n registra la toma con el próximo mensaje del cliente, y el reseteo automático cuenta las horas desde ahí.
+### 6.7 Flow "Cerrar conversación" (opcional)
+Una acción: **Live Chat → Marcar conversación como cerrada**. n8n lo dispara cuando el agente marca `cerrada` (el cliente se despidió o resolvió).
+Si tu cuenta no tiene esa acción, dejá `FLOW_CERRAR_CONVERSACION` vacío: el estado igual queda en el campo y en la etiqueta. La API de ManyChat no tiene endpoint para abrir o cerrar conversaciones; por eso se hace con flows.
 
-### 6.5 Flow "Bot IA - Cerrar conversación" (opcional)
-Una sola acción: **Live Chat → Mark conversation as Closed**. Pegá su `flow_ns` en `FLOW_CERRAR_CONVERSACION`. Cuando el agente marca `cerrada` (el cliente se despidió o resolvió), n8n lo dispara.
-Si tu cuenta no tiene esa acción, dejá `FLOW_CERRAR_CONVERSACION` vacío: el estado queda igual en el campo y el tag `cerrada`. La API de ManyChat no tiene endpoint para abrir o cerrar conversaciones; por eso se hace con flows.
-
-### 6.6 Flow "Bot IA - Seguimiento" con plantilla (opcional, apagado por defecto)
-WhatsApp solo deja mandar mensajes libres **dentro de las 24 h** desde el último mensaje del cliente. Fuera de esa ventana, solo **plantillas aprobadas por Meta**.
-1. Creá la plantilla en **Settings → WhatsApp → Message Templates** (o desde el flow, bloque *WhatsApp Template* → *Create*). Categoría *Marketing*. Ejemplo:
+### 6.8 Flow "Seguimiento" con plantilla (opcional, apagado por defecto)
+WhatsApp solo deja mandar mensajes libres **dentro de las 24 h** desde el último mensaje del cliente. Después, solo **plantillas aprobadas por Meta**.
+1. Creá la plantilla en **Configuración → WhatsApp → Plantillas de mensajes** (categoría *Marketing*). Ejemplo:
    `Hola {{1}}, te escribimos de Otormín Automóviles. ¿Pudiste ver las opciones que te pasamos? Si querés seguimos por acá.`
-2. Esperá la aprobación (de minutos a 24 h).
-3. Creá el flow con la plantilla como **primer** mensaje (con un botón tipo "Sí, sigamos").
-4. En el workflow de inactividad, nodo **Configuración inactividad**: pegá el `flow_ns` en `FLOW_SEGUIMIENTO_PLANTILLA` y poné `SEGUIMIENTO_ACTIVO` = `si`.
+2. Esperá la aprobación.
+3. Hacé el flow con la plantilla como **primer** mensaje.
+4. En **Configuración inactividad**: `FLOW_SEGUIMIENTO_PLANTILLA` = ID del flow y `SEGUIMIENTO_ACTIVO` = `si`.
 
-Se manda **una sola vez por cliente**, cuando queda en `sin_respuesta`. Si responde, la ventana se abre de nuevo y el bot sigue normal.
+Se manda una sola vez por cliente, cuando queda en `sin_respuesta`.
 
-### 6.7 Flow de entrada: Default Reply → External Request (el más importante)
-**Automation → Default Reply → pestaña WhatsApp → Edit / Start flow**:
-
-1. Si aparece la opción de frecuencia, elegí **"Every time" (cada vez)**, no "una vez cada 24 h".
-2. Agregá **Actions → Dev Tools → External Request**:
-   - **Request type:** `POST`
-   - **URL:** `https://TU_DOMINIO/webhook/otormin-manychat`. Es la URL de producción: no uses la que dice `/webhook-test/`.
-   - **Headers:** `X-Otormin-Token` = la misma clave de la credencial `ManyChat webhook (clave)`, y `Content-Type` = `application/json`.
-   - **Body:** elegí una de las dos opciones. Cada `{{...}}` se inserta con el botón de variables, no se escribe a mano.
-
-   **Opción A — campos sueltos (recomendada):**
-   ```json
-   {
-     "subscriber_id": "{{Contact Id}}",
-     "nombre": "{{First Name}}",
-     "apellido": "{{Last Name}}",
-     "telefono": "{{Phone}}",
-     "texto": "{{Last Text Input}}",
-     "adjunto_url": "",
-     "tipo": "",
-     "bot_activo": "{{bot_activo}}",
-     "ultima_interaccion": "{{Last Interaction}}"
-   }
-   ```
-   **Opción B — Full Contact Data** (si la prueba de comillas del paso 8 falla con la A):
-   ```json
-   { "contacto": {{Full Contact Data}} }
-   ```
-   - **Response mapping:** nada. n8n contesta `{"status":"ok"}` al instante y la respuesta del bot va después por la API.
-3. Probá con **Test the request**: tiene que dar **200** y `{"status":"ok"}`.
-4. **Publish**.
-
-Por qué se manda siempre, aunque `bot_activo` sea `no`: n8n registra el mensaje (para métricas y para detectar que un humano tomó el chat) y **no responde**. Si preferís ahorrar llamadas, poné antes del External Request una **Condition** "`bot_activo` no es `no`".
-
-Por qué n8n responde enseguida: el External Request de ManyChat corta a los ~10 segundos, y el bot espera ~9 s para juntar mensajes seguidos y después piensa la respuesta.
-
-**Revisá que ninguna otra automatización responda mensajes de WhatsApp** (keywords, mensaje de bienvenida, pasos de IA de ManyChat). Si no, el cliente recibe dos respuestas.
-
-> **Audios y fotos:** en WhatsApp, ManyChat pone la URL del audio en *Last Text Input*. n8n detecta si ese texto es una URL de archivo, la descarga en el momento (esas URLs vencen) y decide por el tipo de archivo si es audio o foto. Si en tu cuenta las fotos no llegan como URL, se puede agregar un bloque *User Input / Data Collection* de tipo imagen que guarde la URL en un campo y mandarla en `adjunto_url`.
-
-### 6.8 Reglas opcionales (avisos sin apagar el bot)
-**Automation → Rules**:
-- *Cuando se aplica el tag `visita_agendada`* → **Notify Admins** ("Visita agendada: {{First Name}} - {{auto_interes}}").
-- *Cuando se aplica el tag `lead_caliente`* → **Notify Admins**, si quieren enterarse de los leads calientes aunque el bot siga atendiendo.
+### 6.9 Reglas opcionales (avisos sin apagar el bot)
+**Automatización → Reglas**: *cuando se agrega la etiqueta `visita_agendada`* (o `lead_caliente`) → **Notificar a administradores**.
 
 ---
 
 ## 7. Completar la configuración en n8n
 
-### 7.1 Nodo "Configuración Otormín" (workflow del bot)
-Todo lo que dice `COMPLETAR` hay que cargarlo. Mientras diga `COMPLETAR`, el agente no inventa el dato: dice que lo confirma con el equipo.
+### 7.1 Nodo "Configuración Otormín" (bot)
+Mientras un dato diga `COMPLETAR`, el agente no lo inventa: dice que lo confirma con el equipo.
 
 | Variable | Ejemplo | Para qué |
 |---|---|---|
 | `NOMBRE_ASESOR` | `Martín` | Nombre con el que se presenta el bot |
 | `DIRECCION` | `Av. Italia 1234, Montevideo` | Dirección del local |
-| `HORARIOS` | `Lunes a viernes de 9 a 19, sábados de 9 a 13` | Horarios (y para agendar visitas) |
+| `HORARIOS` | `Lunes a viernes de 9 a 19, sábados de 9 a 13` | Horarios (y para agendar) |
 | `TELEFONO_SUCURSAL` | `2600 0000` | Teléfono fijo |
-| `TASA_FINANCIACION` | `24` | Tasa anual en % (sin el signo). Sin cargar, el bot no da cuotas y deriva |
-| `ANTICIPO_MINIMO` | `30` | Anticipo mínimo en % del precio |
-| `CUOTAS_PERMITIDAS` | `12,24,36,48,60` | Planes disponibles |
+| `TASA_FINANCIACION` | `24` | Tasa anual en %. Sin cargar, el bot no da cuotas y deriva |
+| `ANTICIPO_MINIMO` | `30` | Anticipo mínimo en % |
+| `CUOTAS_PERMITIDAS` | `12,24,36,48,60` | Planes |
 | `REQUISITOS_FINANCIACION` | `Cédula, recibo de sueldo y constancia de domicilio` | Lo que se pide para financiar |
 | `AGENDA_ACTIVA` | `si` / `no` | Si el bot agenda visitas en Google Calendar |
 | `DURACION_VISITA_MINUTOS` | `45` | Duración del turno |
-| `ESPERA_BUFFER_SEGUNDOS` | `9` | Cuánto espera para juntar mensajes seguidos |
-| `PAUSA_ENTRE_MENSAJES_SEGUNDOS` | `1.2` | Pausa entre las burbujas de respuesta |
-| `FLOW_NOTIFICAR_HUMANO` | `content2026…` | `flow_ns` del paso 6.1 |
-| `FLOW_CERRAR_CONVERSACION` | vacío o `content2026…` | `flow_ns` del paso 6.5 |
+| `FLOW_ENVIAR_MENSAJES` | `content2026…` | ID del flow del paso 6.2 (**obligatorio**) |
+| `FLOW_NOTIFICAR_HUMANO` | `content2026…` | ID del flow del paso 6.3 |
+| `FLOW_CERRAR_CONVERSACION` | vacío o `content2026…` | ID del flow del paso 6.7 |
+| `USAR_BUFFER_N8N` | `no` | Los mensajes seguidos ya los junta ManyChat. Con `si`, n8n además espera `ESPERA_BUFFER_SEGUNDOS` y junta en Redis |
 | `MENSAJE_RESPALDO` | (ya cargado) | Lo que recibe el cliente si el agente falla |
-| `ZONA_HORARIA` | `America/Montevideo` | No tocar |
 
 ### 7.2 Stock (nodo `consultar_stock`)
-Usá una planilla con **las mismas columnas que el demo**: `id, tipo, marca, modelo, version, anio, km, combustible, transmision, traccion, color, puertas, precio_usd, precio_ars, condicion, disponible, sucursal, foto_url, descripcion, destacado, fecha_ingreso`.
-- `precio_ars` se puede dejar vacío. Si la renombrás a `precio_uyu`, cambiá también la descripción de la herramienta.
-- Las `foto_url` tienen que ser **links directos a la imagen** (que terminen en .jpg/.png o que abran la foto sola), públicos.
-- En el nodo: elegí el documento y la hoja. **Ahora apunta a la planilla del demo (AutoNova), cambiala por la de Otormín.**
+Planilla con **las mismas columnas que el demo** (`id, tipo, marca, modelo, version, anio, km, combustible, transmision, traccion, color, puertas, precio_usd, precio_ars, condicion, disponible, sucursal, foto_url, descripcion, destacado, fecha_ingreso`).
+**Ahora apunta a la planilla del demo (AutoNova): cambiala por la de Otormín.** Las `foto_url` tienen que ser links directos y públicos.
 
 ### 7.3 Agenda (nodo `agendar_visita`)
-- Elegí el calendario del local (ahora tiene un ID de ejemplo `COMPLETAR@group.calendar.google.com`).
-- **Para desactivarla:** poné `AGENDA_ACTIVA` = `no` y desactivá el nodo (clic derecho → *Deactivate*). Sin agenda, cuando el cliente quiere venir, el bot le pregunta día y horario y deriva a un asesor para que confirme.
-- Si la agenda da error (por ejemplo, el calendario sin configurar), el bot no promete el turno: deriva a un asesor.
+- Elegí el calendario del local (ahora tiene un ID de ejemplo).
+- **Para desactivarla:** `AGENDA_ACTIVA` = `no` y desactivá el nodo (clic derecho → *Deactivate*). Sin agenda, o si la agenda falla, el bot no promete el turno: deriva a un asesor.
 
-### 7.4 Modelo
-El nodo **Modelo OpenAI** usa el mismo modelo que el demo. Se cambia ahí si hace falta.
-
-### 7.5 Activar
+### 7.4 Activar
 Guardá y **activá (Publish)** el workflow del bot.
 
 ---
 
 ## 8. Probar la conexión
 
-Desde un celular que no sea el del negocio, escribile al número:
-1. **"Hola"** → en n8n, en **Executions**, tiene que aparecer una ejecución verde. En ManyChat, el contacto queda con `estado_conversacion = nuevo` y el tag `nuevo`, y te llega la respuesta.
-2. **Prueba de comillas y saltos de línea** (obligatoria): mandá en un solo mensaje
-   `Hola "che"` + Enter + `segunda línea`.
-   Si no llega respuesta **y en n8n no aparece ninguna ejecución**, ManyChat está mandando el JSON sin escapar el texto: cambiá el body del External Request a la **Opción B** (paso 6.7).
-3. **Un audio** y **una foto de un auto**. Si no los entiende, mirá en ManyChat el *Last Text Input* del contacto: tiene que ser una URL.
-4. Seguí con todos los casos de [`docs/PRUEBAS.md`](PRUEBAS.md).
+Desde un celular que no sea el del negocio:
+1. **"Hola"**. Tiene que pasar todo esto:
+   - En ManyChat, el flow "Recibir mensajes" corre.
+   - A los ~10 s aparece una ejecución verde en n8n.
+   - El contacto queda con `estado_conversacion = nuevo` y la etiqueta `nuevo`.
+   - Llega la respuesta en 1 a 3 burbujas.
+2. **Tres mensajes seguidos** (`Hola` · `busco una camioneta` · `hasta 25 mil`) → **una sola** respuesta que tiene en cuenta todo.
+3. **Mensaje con saltos de línea** (`Hola` + Enter + `segunda línea`) → tiene que responder normal. Si no, revisá el paso de ChatGPT [6].
+4. **Un audio** y **una foto** de un auto.
+5. Seguí con [`docs/PRUEBAS.md`](PRUEBAS.md).
 
 ---
 
 ## 9. El día a día del equipo
 
-- Los chats derivados aparecen **abiertos y asignados** en el Inbox, con una notificación que trae el motivo (`motivo_derivacion`) y el auto (`auto_interes`).
-- **Respondan siempre desde ManyChat** (web o app de ManyChat), no desde la app de WhatsApp Business.
-- Al terminar: flow **"Bot IA - Reactivar bot"** o `bot_activo = si`. Si se olvidan, se reactiva solo a las 12 h.
-- Si un vendedor quiere meterse en un chat que el bot no derivó: flow **"Bot IA - Tomar conversación"**. Si escribe directo, la pausa de ManyChat lo cubre el tiempo configurado en el paso 5.5.
-- Para ver los clientes por estado, filtrá por tags: `necesita_humano`, `lead_caliente`, `visita_agendada`, `sin_respuesta`.
+- Los chats derivados aparecen **abiertos y asignados** en el Inbox, con la notificación que trae el motivo y el auto.
+- **Respondan siempre desde ManyChat**, no desde la app de WhatsApp Business.
+- Al terminar: flow **"Reactivar bot"** (o `bot_activo = si`). Si se olvidan, se reactiva solo a las 12 h.
+- Para meterse en un chat que el bot no derivó: flow **"Tomar conversación"**.
+- Para ver los clientes por estado, filtrá por etiquetas: `necesita_humano`, `lead_caliente`, `visita_agendada`, `sin_respuesta`.
 
 ---
 
-## 10. La ventana de 24 h, en resumen
+## 10. La ventana de 24 h
 
 | Situación | Qué se puede mandar |
 |---|---|
 | El cliente escribió hace menos de 24 h | Cualquier mensaje (el bot siempre responde dentro de esta ventana) |
-| Pasaron más de 24 h | Solo una **plantilla aprobada**, y únicamente con `sendFlow` a un flow que empiece con la plantilla |
-| El cliente responde la plantilla | Se abre otra ventana de 24 h y todo vuelve a la normalidad |
-
-El seguimiento automático de clientes `sin_respuesta` (paso 6.6) usa exactamente esto.
+| Pasaron más de 24 h | Solo una **plantilla aprobada**, con `sendFlow` a un flow que empiece con la plantilla (paso 6.8) |
+| El cliente responde la plantilla | Se abre otra ventana de 24 h |
 
 ---
 
 ## 11. Qué está verificado y qué hay que confirmar en tu cuenta
 
 **Verificado:**
-- Contra la documentación de la API de ManyChat (Dynamic Block v2 para WhatsApp, `sendContent`, `sendFlow`, `getInfo`, `setCustomFields`, `addTagByName`/`removeTagByName`).
-- Los tres workflows se importaron y activaron en **n8n 2.44.4** (principal + worker en modo queue, Postgres y Redis) y se probaron de punta a punta con una API de ManyChat y de OpenAI **simuladas**. Ver los resultados en `docs/PRUEBAS.md`.
+- Los tres workflows se importaron y activaron en **n8n 2.44.4** (principal + worker en modo queue, Postgres, Redis).
+- Se probaron de punta a punta con una API de ManyChat y de OpenAI **simuladas**. El simulador hace lo mismo que el flow "Enviar mensajes": manda las partes y borra los campos. Resultados en `docs/PRUEBAS.md`.
+- Los endpoints contra la documentación de la API de ManyChat: `setCustomFields`, `setCustomFieldByName`, `sendFlow`, `getInfo`, `addTagByName`/`removeTagByName`.
 
 **A confirmar en tu cuenta de ManyChat** (no lo pude probar contra la cuenta real):
-- **Fotos por API:** que WhatsApp acepte las fotos por `sendContent`. Si las rechaza, el bot manda el link como texto (WhatsApp muestra la vista previa).
-- **Escapado del JSON:** que el External Request escape bien las comillas y los saltos de línea (prueba del paso 8; si falla, Opción B).
-- **URL de las fotos del cliente:** que también llegue en *Last Text Input*, igual que la de los audios.
-- **Nombres en la interfaz:** los de menús y acciones (*Mark conversation as Open/Closed*, *Notify Admins*, *Live Chat Behavior*) pueden variar un poco según la versión de ManyChat.
+- **Nombres en la interfaz:** los de menús y acciones pueden variar un poco según el idioma y la versión de ManyChat.
+- **Bloque de imagen:** que acepte una URL desde un campo para las fotos. Si no, se mandan como link.
+- **Retraso inteligente:** que un mensaje nuevo del cliente no corte el retraso del flow anterior. Cualquiera sea el comportamiento, la condición [4] evita que se mande dos veces.
 
 ---
 
@@ -333,11 +370,11 @@ El seguimiento automático de clientes `sin_respuesta` (paso 6.6) usa exactament
 
 | Síntoma | Qué revisar |
 |---|---|
-| No responde y en n8n no hay ejecución | URL del External Request (`/webhook/`, no `/webhook-test/`), que el bot esté activo, que el header `X-Otormin-Token` coincida. Prueba de comillas (paso 8) |
+| No responde y en n8n no hay ejecución | URL de la Solicitud externa (`/webhook/`, no `/webhook-test/`), que el bot esté activo, el encabezado `X-Otormin-Token`, el paso de ChatGPT (saltos de línea) |
+| Hay ejecución en n8n pero no llega nada | `FLOW_ENVIAR_MENSAJES` mal copiado o el flow "Enviar mensajes" sin publicar. Los campos `parte_1..3` deben existir con esos nombres exactos |
+| Responde dos veces | Otra automatización de ManyChat también responde (keywords, bienvenida) |
+| Responde a cada mensaje por separado | El flow "Recibir mensajes" no concatena: revisá las dos ramas del paso [2] y el retraso de 10 s |
 | La ejecución termina en "Fin: lo atiende un humano" | El contacto tiene `bot_activo = no` |
-| La ejecución termina en "Fin: un humano tomó el chat" | Alguien puso `bot_activo = no` mientras el agente pensaba (es lo esperado) |
-| El cliente recibe dos respuestas | Otra automatización de ManyChat también responde (keywords, bienvenida) |
-| Las fotos llegan como link | WhatsApp no aceptó la imagen por API: revisá que la `foto_url` sea un link directo y público |
-| No llega el aviso de derivación | `FLOW_NOTIFICAR_HUMANO` mal copiado, o el flow no está publicado |
-| El workflow de errores no corre | En n8n 2.x tiene que estar **activo**, y elegido como *Error workflow* en los Settings de los otros dos |
-| `403` al probar el External Request | Header `X-Otormin-Token` distinto al de la credencial `ManyChat webhook (clave)` |
+| No llega el aviso de derivación | `FLOW_NOTIFICAR_HUMANO` mal copiado, o el flow sin publicar |
+| El workflow de errores no corre | En n8n 2.x tiene que estar **activo** y elegido como *Error workflow* de los otros dos |
+| `403` al probar la Solicitud externa | `X-Otormin-Token` distinto al de la credencial `ManyChat webhook (clave)` |

@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Workflow de errores\nSe configura como **Error Workflow** del bot y del chequeo de inactividad (Settings del workflow → Error workflow).\n1. Avisa al admin por **email** (y opcional por WhatsApp vía ManyChat, solo llega si el admin tiene la ventana de 24 h abierta).\n2. Si el error fue atendiendo a un cliente y todavía no se le respondió: **mensaje de respaldo + derivación a humano** (bot_activo = no, tag necesita_humano, flow de aviso). Máximo un respaldo cada 10 minutos por cliente.",
+        "content": "## Workflow de errores\nSe configura como **Error Workflow** del bot y del chequeo de inactividad (Settings del workflow → Error workflow).\n1. Avisa al admin por **email** (y opcional por WhatsApp vía ManyChat, solo llega si el admin tiene la ventana de 24 h abierta).\nEl respaldo al cliente sale por el flow \"Enviar mensajes\" (parte_1 = MENSAJE_RESPALDO).\n2. Si el error fue atendiendo a un cliente y todavía no se le respondió: **mensaje de respaldo + derivación a humano** (bot_activo = no, tag necesita_humano, flow de aviso). Máximo un respaldo cada 10 minutos por cliente.",
         "height": 280,
         "width": 1500,
         "color": 3
@@ -63,19 +63,25 @@
               "type": "string"
             },
             {
-              "id": "12bd256e-a595-4d7a-a9ce-994ca12fa608",
+              "id": "e503e988-5822-40d8-a188-5b297cb27311",
+              "name": "FLOW_ENVIAR_MENSAJES",
+              "value": "COMPLETAR",
+              "type": "string"
+            },
+            {
+              "id": "098f5e6c-3498-47d6-a1a5-9c481f9b7225",
               "name": "NOMBRE_WORKFLOW_BOT",
               "value": "Otormín - Bot WhatsApp (ManyChat)",
               "type": "string"
             },
             {
-              "id": "9ce4131b-0a15-4711-ae6d-ea523dbc33d2",
+              "id": "0c463cc9-bb42-4acc-ada7-7343ab903282",
               "name": "RESPALDO_AL_CLIENTE",
               "value": "si",
               "type": "string"
             },
             {
-              "id": "e92f2cb4-39fb-455f-aa5b-09166dcf5d96",
+              "id": "a3d2f8bf-7deb-4b78-a73d-d468128306db",
               "name": "MENSAJE_RESPALDO",
               "value": "¡Perdón! Tuve un problema para responderte por acá. Ya le pasé tu consulta a un asesor de Otormín y te escribe enseguida.",
               "type": "string"
@@ -172,12 +178,12 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/sending/sendContent",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/subscriber/setCustomFields",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Configuración de avisos').first().json.ADMIN_SUBSCRIBER_ID, data: { version: 'v2', content: { type: 'whatsapp', messages: [ { type: 'text', text: $('Armar aviso').first().json.texto_whatsapp } ] } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Configuración de avisos').first().json.ADMIN_SUBSCRIBER_ID, fields: [ { field_name: 'parte_1', field_value: $('Armar aviso').first().json.texto_whatsapp } ] }) }}",
         "options": {
           "timeout": 15000,
           "batching": {
@@ -188,12 +194,50 @@
           }
         }
       },
-      "id": "b2f16a59-510f-4bc5-a308-ad72eddc3ba8",
-      "name": "Avisar al admin por WhatsApp",
+      "id": "823f8e06-a043-414e-a08b-8a7e3028124e",
+      "name": "Guardar aviso para el admin (parte_1)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
         640,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/sending/sendFlow",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Configuración de avisos').first().json.ADMIN_SUBSCRIBER_ID, flow_ns: $('Configuración de avisos').first().json.FLOW_ENVIAR_MENSAJES }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "09913957-a54a-47ec-a6a9-1512d68c52f5",
+      "name": "Avisar al admin por WhatsApp (flow)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
         300
       ],
       "credentials": {
@@ -289,7 +333,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Busca en la ejecución fallida a qué cliente había que responderle y decide\n// si corresponde mandarle el mensaje de respaldo (nunca dejarlo sin respuesta).\nconst ex = $input.first().json || {};\nconst aviso = $('Armar aviso').first().json;\n\nlet data = ex.data;\nif (typeof data === 'string') { try { data = JSON.parse(data); } catch (_) { data = null; } }\nconst runData = data?.resultData?.runData || {};\n\nconst corrio = (n) => Array.isArray(runData[n]) && runData[n].length > 0;\nconst salida = (n) => runData[n]?.[0]?.data?.main;\nconst primerItem = (n) => salida(n)?.[0]?.[0]?.json;\n// true si el IF mandó todo por la rama \"false\"\nconst salioPorFalse = (n) => {\n  const m = salida(n);\n  return Array.isArray(m) && !(m[0]?.length) && (m[1]?.length > 0);\n};\n\nconst entrada = primerItem('Normalizar entrada') || {};\nlet motivoSalteo = '';\nif (!entrada.subscriber_id) motivoSalteo = 'no se encontró el contacto en la ejecución';\nelse if (entrada.bot_activo === false) motivoSalteo = 'el bot estaba apagado (lo atiende un humano)';\nelse if (corrio('Enviar mensaje 1')) motivoSalteo = 'el cliente ya había recibido la respuesta';\nelse if (salioPorFalse('¿Es un mensaje nuevo?')) motivoSalteo = 'era un mensaje repetido';\nelse if (salioPorFalse('¿Es el último mensaje?')) motivoSalteo = 'otro mensaje del mismo cliente seguía la conversación';\nelse if (salioPorFalse('¿Sigue activo el bot?')) motivoSalteo = 'un humano ya había tomado el chat';\n\nconst sid = String(entrada.subscriber_id || '');\nreturn [{\n  json: {\n    responder: !motivoSalteo,\n    motivo_salteo: motivoSalteo,\n    subscriber_id: sid,\n    subscriber_id_api: /^\\d{1,15}$/.test(sid) ? Number(sid) : sid,\n    ultimo_nodo: aviso.ultimo_nodo,\n    error: aviso.error,\n    execution_id: aviso.execution_id,\n  },\n}];\n"
+        "jsCode": "// Busca en la ejecución fallida a qué cliente había que responderle y decide\n// si corresponde mandarle el mensaje de respaldo (nunca dejarlo sin respuesta).\nconst ex = $input.first().json || {};\nconst aviso = $('Armar aviso').first().json;\n\nlet data = ex.data;\nif (typeof data === 'string') { try { data = JSON.parse(data); } catch (_) { data = null; } }\nconst runData = data?.resultData?.runData || {};\n\nconst corrio = (n) => Array.isArray(runData[n]) && runData[n].length > 0;\nconst salida = (n) => runData[n]?.[0]?.data?.main;\nconst primerItem = (n) => salida(n)?.[0]?.[0]?.json;\n// true si el IF mandó todo por la rama \"false\"\nconst salioPorFalse = (n) => {\n  const m = salida(n);\n  return Array.isArray(m) && !(m[0]?.length) && (m[1]?.length > 0);\n};\n\nconst entrada = primerItem('Normalizar entrada') || {};\nlet motivoSalteo = '';\nif (!entrada.subscriber_id) motivoSalteo = 'no se encontró el contacto en la ejecución';\nelse if (entrada.bot_activo === false) motivoSalteo = 'el bot estaba apagado (lo atiende un humano)';\nelse if (corrio('Disparar flow \"Enviar mensajes\"')) motivoSalteo = 'el cliente ya había recibido la respuesta';\nelse if (salioPorFalse('¿Es un mensaje nuevo?')) motivoSalteo = 'era un mensaje repetido';\nelse if (salioPorFalse('¿Es el último mensaje?')) motivoSalteo = 'otro mensaje del mismo cliente seguía la conversación';\nelse if (salioPorFalse('¿Sigue activo el bot?')) motivoSalteo = 'un humano ya había tomado el chat';\n\nconst sid = String(entrada.subscriber_id || '');\nreturn [{\n  json: {\n    responder: !motivoSalteo,\n    motivo_salteo: motivoSalteo,\n    subscriber_id: sid,\n    subscriber_id_api: /^\\d{1,15}$/.test(sid) ? Number(sid) : sid,\n    ultimo_nodo: aviso.ultimo_nodo,\n    error: aviso.error,\n    execution_id: aviso.execution_id,\n  },\n}];\n"
       },
       "id": "659936d7-6178-4fed-a944-2676f71f6702",
       "name": "Buscar al cliente afectado",
@@ -586,12 +630,12 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/sending/sendContent",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/subscriber/setCustomFields",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Buscar al cliente afectado').first().json.subscriber_id_api, data: { version: 'v2', content: { type: 'whatsapp', messages: [ { type: 'text', text: $('Configuración de avisos').first().json.MENSAJE_RESPALDO } ] } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Buscar al cliente afectado').first().json.subscriber_id_api, fields: [ { field_name: 'parte_1', field_value: $('Configuración de avisos').first().json.MENSAJE_RESPALDO } ] }) }}",
         "options": {
           "timeout": 15000,
           "batching": {
@@ -602,12 +646,50 @@
           }
         }
       },
-      "id": "0e6114dd-ad4e-4432-a081-4ca39bf93466",
-      "name": "Mensaje de respaldo al cliente",
+      "id": "cc46941d-191d-422f-a67d-a6bdf0c0d798",
+      "name": "Guardar mensaje de respaldo (parte_1)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
         2840,
+        520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/sending/sendFlow",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Buscar al cliente afectado').first().json.subscriber_id_api, flow_ns: $('Configuración de avisos').first().json.FLOW_ENVIAR_MENSAJES }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "a09582d7-dfee-4003-ac52-c49be7873019",
+      "name": "Enviar respaldo al cliente (flow)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3060,
         520
       ],
       "credentials": {
@@ -671,7 +753,18 @@
       "main": [
         [
           {
-            "node": "Avisar al admin por WhatsApp",
+            "node": "Guardar aviso para el admin (parte_1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar aviso para el admin (parte_1)": {
+      "main": [
+        [
+          {
+            "node": "Avisar al admin por WhatsApp (flow)",
             "type": "main",
             "index": 0
           }
@@ -792,7 +885,18 @@
       "main": [
         [
           {
-            "node": "Mensaje de respaldo al cliente",
+            "node": "Guardar mensaje de respaldo (parte_1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar mensaje de respaldo (parte_1)": {
+      "main": [
+        [
+          {
+            "node": "Enviar respaldo al cliente (flow)",
             "type": "main",
             "index": 0
           }

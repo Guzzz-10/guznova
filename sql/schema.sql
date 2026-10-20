@@ -60,7 +60,7 @@ CREATE INDEX IF NOT EXISTS conversaciones_bot_apagado_idx
 -- ---------------------------------------------------------------------
 -- Historial de eventos (métricas y auditoría).
 -- tipo: mensaje_cliente | respuesta_bot | cambio_estado | derivacion |
---       reactivacion | sin_respuesta | seguimiento | error
+--       tomado_por_humano | reactivacion | sin_respuesta | seguimiento | error
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS eventos_conversacion (
     id              BIGSERIAL PRIMARY KEY,
