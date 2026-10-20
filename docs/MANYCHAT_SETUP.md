@@ -296,6 +296,7 @@ Mientras un dato diga `COMPLETAR`, el agente no lo inventa: dice que lo confirma
 | `ANTICIPO_MINIMO` | `30` | Anticipo mínimo en % |
 | `CUOTAS_PERMITIDAS` | `12,24,36,48,60` | Planes |
 | `REQUISITOS_FINANCIACION` | `Cédula, recibo de sueldo y constancia de domicilio` | Lo que se pide para financiar |
+| `INFO_ADICIONAL` | `Aceptamos transferencia y tarjeta. Garantía de 3 meses. Entregamos en todo el país.` | Formas de pago, garantía, documentación, envíos: lo que el bot tiene que saber y no está en otro campo |
 | `AGENDA_ACTIVA` | `si` / `no` | Si el bot agenda visitas en Google Calendar |
 | `DURACION_VISITA_MINUTOS` | `45` | Duración del turno |
 | `FLOW_ENVIAR_MENSAJES` | `content2026…` | ID del flow del paso 6.2 (**obligatorio**) |

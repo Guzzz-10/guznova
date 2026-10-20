@@ -11,7 +11,7 @@ La conexión con ManyChat sigue el método del video de Nexumi ("conectar tu age
 - **n8n:** responde "ok" al instante; separa audios y fotos (puede haber varios por turno), los procesa y los junta, y corre el agente.
 - **Envío:** n8n guarda `parte_1`, `parte_2`, `parte_3` (y `foto_1..3`) con `setCustomFields` y dispara con `sendFlow` el **flow "Enviar mensajes"**, que se las manda al cliente y borra los campos.
 
-**Para ponerlo en marcha seguí [`docs/MANYCHAT_SETUP.md`](docs/MANYCHAT_SETUP.md)** y después probá con [`docs/PRUEBAS.md`](docs/PRUEBAS.md).
+**Para ponerlo en marcha en Hostinger seguí [`docs/PASO_A_PASO_HOSTINGER.md`](docs/PASO_A_PASO_HOSTINGER.md)** (42 pasos, desde qué pedirle al cliente hasta la entrega). El detalle técnico de cada parte está en [`docs/MANYCHAT_SETUP.md`](docs/MANYCHAT_SETUP.md) y las pruebas en [`docs/PRUEBAS.md`](docs/PRUEBAS.md).
 
 ### Qué hay en el repo
 
@@ -25,6 +25,7 @@ La conexión con ManyChat sigue el método del video de Nexumi ("conectar tu age
 | `docker-compose.yml`, `.env.example`, `Caddyfile` | n8n 2.44.4 en modo queue (principal + worker), Postgres 17, Redis 7 y Caddy (HTTPS automático), con reinicio automático |
 | `docs/MANYCHAT_SETUP.md` | Paso a paso: servidor, credenciales, importación y ManyChat (campos, etiquetas, flows "Recibir mensajes" y "Enviar mensajes", derivación, Live Chat, plantillas) |
 | `docs/PRUEBAS.md` | 24 casos de prueba con el resultado esperado |
+| `docs/PASO_A_PASO_HOSTINGER.md` | Guía completa para Hostinger: mensaje para el cliente, VPS, n8n, ManyChat clic por clic, pruebas y entrega |
 
 ### Cómo funciona el control humano
 
