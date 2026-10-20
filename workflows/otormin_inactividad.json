@@ -1,0 +1,871 @@
+{
+  "name": "Otormín - Inactividad (sin_respuesta y reactivación)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Chequeo de inactividad (cada 1 hora)\n**Arriba:** clientes a los que el bot les habló último hace más de HORAS_SIN_RESPUESTA (24 h) → estado y tag **sin_respuesta** en ManyChat y Postgres.\nOpcional (apagado por defecto): seguimiento con una **plantilla aprobada de WhatsApp** (fuera de la ventana de 24 h solo se pueden mandar plantillas). Se manda una sola vez por cliente.\n\n**Abajo:** bots apagados (derivados o tomados por un humano) hace más de HORAS_REACTIVACION_BOT → bot_activo = si.",
+        "height": 300,
+        "width": 1200,
+        "color": 4
+      },
+      "id": "8eed44bc-6853-4245-a769-59da66a897a6",
+      "name": "Nota: inactividad",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "c79dc5e7-5362-4e38-afb3-a5014182fb35",
+      "name": "Cada 1 hora",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c6f5c904-661e-4194-a17b-a9163f0b4a92",
+              "name": "HORAS_SIN_RESPUESTA",
+              "value": 24,
+              "type": "number"
+            },
+            {
+              "id": "9463df32-3033-4fbd-accd-d1b2db72a142",
+              "name": "HORAS_REACTIVACION_BOT",
+              "value": 12,
+              "type": "number"
+            },
+            {
+              "id": "b5f4d4dd-071a-44eb-a718-754ecc638c29",
+              "name": "SEGUIMIENTO_ACTIVO",
+              "value": "no",
+              "type": "string"
+            },
+            {
+              "id": "1f875cb1-1694-48c4-a21b-7e667bdabfb2",
+              "name": "FLOW_SEGUIMIENTO_PLANTILLA",
+              "value": "COMPLETAR",
+              "type": "string"
+            },
+            {
+              "id": "64b15f9b-2708-492d-a9b2-e8ad2d5a69e4",
+              "name": "MANYCHAT_API_URL",
+              "value": "https://api.manychat.com",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "034fbd51-f2ac-48d5-abd7-7130ebc07898",
+      "name": "Configuración inactividad",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -40,
+        300
+      ],
+      "notes": "SEGUIMIENTO_ACTIVO = si para mandar la plantilla de seguimiento (flow_ns del flow que empieza con la plantilla).",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT subscriber_id,\n       estado AS estado_anterior,\n       seguimiento_enviado_at IS NOT NULL AS ya_tuvo_seguimiento\nFROM conversaciones\nWHERE bot_activo\n  AND estado IN ('nuevo', 'en_conversacion', 'lead_caliente')\n  AND ultimo_mensaje_bot_at IS NOT NULL\n  AND ultimo_mensaje_bot_at < now() - make_interval(hours => $1::int)\n  AND (ultimo_mensaje_cliente_at IS NULL OR ultimo_mensaje_cliente_at <= ultimo_mensaje_bot_at)\nORDER BY ultimo_mensaje_bot_at\nLIMIT 200;",
+        "options": {
+          "queryReplacement": "={{ [ $('Configuración inactividad').first().json.HORAS_SIN_RESPUESTA ] }}"
+        }
+      },
+      "id": "14801603-e72c-4302-ad45-8ffcae20e5cc",
+      "name": "Buscar clientes sin respuesta",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        200,
+        160
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "otorminPostgres",
+          "name": "Postgres Otormín"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración inactividad').first().json.MANYCHAT_API_URL }}/fb/subscriber/setCustomFields",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: (/^\\d{1,15}$/.test(String($('Buscar clientes sin respuesta').item.json.subscriber_id)) ? Number($('Buscar clientes sin respuesta').item.json.subscriber_id) : String($('Buscar clientes sin respuesta').item.json.subscriber_id)), fields: [ { field_name: 'estado_conversacion', field_value: 'sin_respuesta' } ] }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "f244e31b-1181-4bd9-aa34-15fd9974f6d8",
+      "name": "Marcar sin_respuesta en ManyChat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        160
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración inactividad').first().json.MANYCHAT_API_URL }}/fb/subscriber/removeTagByName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: (/^\\d{1,15}$/.test(String($('Buscar clientes sin respuesta').item.json.subscriber_id)) ? Number($('Buscar clientes sin respuesta').item.json.subscriber_id) : String($('Buscar clientes sin respuesta').item.json.subscriber_id)), tag_name: $('Buscar clientes sin respuesta').item.json.estado_anterior }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "e6c75ba5-64f0-46d2-a647-b3490d14c5f7",
+      "name": "Quitar tag del estado anterior",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        160
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración inactividad').first().json.MANYCHAT_API_URL }}/fb/subscriber/addTagByName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: (/^\\d{1,15}$/.test(String($('Buscar clientes sin respuesta').item.json.subscriber_id)) ? Number($('Buscar clientes sin respuesta').item.json.subscriber_id) : String($('Buscar clientes sin respuesta').item.json.subscriber_id)), tag_name: 'sin_respuesta' }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "64ca2e35-1f65-4edc-ac04-93667295749b",
+      "name": "Poner tag sin_respuesta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        160
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upd AS (\n  UPDATE conversaciones SET estado = 'sin_respuesta', sin_respuesta_at = now()\n  WHERE subscriber_id = $1 AND estado = $2\n  RETURNING subscriber_id\n), ev AS (\n  INSERT INTO eventos_conversacion (subscriber_id, tipo, estado, detalle)\n  SELECT subscriber_id, 'sin_respuesta', 'sin_respuesta', jsonb_build_object('desde', $2::text, 'horas', $3::int) FROM upd\n  RETURNING id\n)\nSELECT $1::text AS subscriber_id, (SELECT count(*) FROM ev)::int AS registrado;",
+        "options": {
+          "queryReplacement": "={{ [ $('Buscar clientes sin respuesta').item.json.subscriber_id, $('Buscar clientes sin respuesta').item.json.estado_anterior, $('Configuración inactividad').first().json.HORAS_SIN_RESPUESTA ] }}"
+        }
+      },
+      "id": "a5519cfc-fc33-480e-a5df-728c8eaae050",
+      "name": "Guardar sin_respuesta en Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1080,
+        160
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "otorminPostgres",
+          "name": "Postgres Otormín"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a54520dc-2aed-4ba4-a420-dd2e87dc0577",
+              "leftValue": "={{ $('Configuración inactividad').first().json.SEGUIMIENTO_ACTIVO }}",
+              "rightValue": "si",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "66c5aae4-8a20-4bf7-a20c-34d52d07c6fb",
+              "leftValue": "={{ !/COMPLETAR/i.test($('Configuración inactividad').first().json.FLOW_SEGUIMIENTO_PLANTILLA) && !!$('Configuración inactividad').first().json.FLOW_SEGUIMIENTO_PLANTILLA }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "30a454ac-aaba-4258-a72a-d2e1f7fefc53",
+              "leftValue": "={{ $('Buscar clientes sin respuesta').item.json.ya_tuvo_seguimiento }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "71a46998-4ba9-452b-a2a4-7dec0b5fd74e",
+      "name": "¿Mandar plantilla de seguimiento?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1300,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración inactividad').first().json.MANYCHAT_API_URL }}/fb/sending/sendFlow",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: (/^\\d{1,15}$/.test(String($('Buscar clientes sin respuesta').item.json.subscriber_id)) ? Number($('Buscar clientes sin respuesta').item.json.subscriber_id) : String($('Buscar clientes sin respuesta').item.json.subscriber_id)), flow_ns: $('Configuración inactividad').first().json.FLOW_SEGUIMIENTO_PLANTILLA }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "bfdb7c72-5f5b-4ead-a2e8-6d0ae5000d5d",
+      "name": "Enviar plantilla de seguimiento (flow)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        60
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upd AS (\n  UPDATE conversaciones SET seguimiento_enviado_at = now()\n  WHERE subscriber_id = $1\n  RETURNING subscriber_id\n)\nINSERT INTO eventos_conversacion (subscriber_id, tipo, estado, detalle)\nSELECT subscriber_id, 'seguimiento', 'sin_respuesta', jsonb_build_object('flow_ns', $2::text) FROM upd\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [ $('Buscar clientes sin respuesta').item.json.subscriber_id, $('Configuración inactividad').first().json.FLOW_SEGUIMIENTO_PLANTILLA ] }}"
+        }
+      },
+      "id": "25340706-2249-42cb-a83a-bf2607dae228",
+      "name": "Registrar seguimiento enviado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1740,
+        60
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "otorminPostgres",
+          "name": "Postgres Otormín"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT subscriber_id, estado\nFROM conversaciones\nWHERE NOT bot_activo\n  AND GREATEST(COALESCE(derivado_at, '-infinity'::timestamptz), COALESCE(tomado_at, '-infinity'::timestamptz))\n      < now() - make_interval(hours => $1::int)\nORDER BY GREATEST(COALESCE(derivado_at, '-infinity'::timestamptz), COALESCE(tomado_at, '-infinity'::timestamptz))\nLIMIT 200;",
+        "options": {
+          "queryReplacement": "={{ [ $('Configuración inactividad').first().json.HORAS_REACTIVACION_BOT ] }}"
+        }
+      },
+      "id": "daae0b00-55e3-4793-ac23-836e707bf758",
+      "name": "Buscar bots apagados vencidos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        200,
+        520
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "otorminPostgres",
+          "name": "Postgres Otormín"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Configuración inactividad').first().json.MANYCHAT_API_URL }}/fb/subscriber/getInfo",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "subscriber_id",
+              "value": "={{ $json.subscriber_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "3dc82fa6-216f-4827-a580-d62a8736dbbf",
+      "name": "Leer bot_activo en ManyChat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Para cada bot apagado hace más de X horas: ¿sigue apagado en ManyChat?\nconst fila = $('Buscar bots apagados vencidos').item.json;\nconst info = $json || {};\nconst campos = Array.isArray(info.data?.custom_fields) ? info.data.custom_fields : [];\nconst valor = String(campos.find((c) => c && c.name === 'bot_activo')?.value ?? '').trim().toLowerCase();\nconst sid = String(fila.subscriber_id);\n\nreturn {\n  json: {\n    subscriber_id: sid,\n    subscriber_id_api: /^\\d{1,15}$/.test(sid) ? Number(sid) : sid,\n    estado: fila.estado,\n    // Si ManyChat no respondió (error), no se toca nada en ManyChat\n    manychat_ok: campos.length > 0,\n    sigue_apagado: ['no', 'false', '0', 'off', 'n'].includes(valor),\n    estaba_derivado: fila.estado === 'necesita_humano',\n  },\n};\n"
+      },
+      "id": "7c9bc966-5da3-4010-a120-88c5f308bce9",
+      "name": "Preparar reactivación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4da305c9-23ea-4c93-a3ac-17fa1950dc44",
+              "leftValue": "={{ $json.manychat_ok && $json.sigue_apagado }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "114cf984-7844-49a3-aabd-7bd805c55d3a",
+      "name": "¿Sigue apagado en ManyChat?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        860,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración inactividad').first().json.MANYCHAT_API_URL }}/fb/subscriber/setCustomFields",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Preparar reactivación').item.json.subscriber_id_api, fields: [ { field_name: 'bot_activo', field_value: 'si' }, { field_name: 'estado_conversacion', field_value: $('Preparar reactivación').item.json.estaba_derivado ? 'en_conversacion' : $('Preparar reactivación').item.json.estado } ] }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "9b8aff84-131e-419f-a31f-d1f28e757c0d",
+      "name": "Reactivar bot en ManyChat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        420
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e2bfd6ab-ced8-4a9d-a258-b2dbf63c7ea7",
+              "leftValue": "={{ $('Preparar reactivación').item.json.estaba_derivado }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bd5cc8c6-262b-405f-ae5a-775fd55edf19",
+      "name": "¿Estaba en necesita_humano?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1300,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración inactividad').first().json.MANYCHAT_API_URL }}/fb/subscriber/removeTagByName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Preparar reactivación').item.json.subscriber_id_api, tag_name: 'necesita_humano' }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "3f8db1a0-c7c4-43a9-a42e-88827b69e39e",
+      "name": "Quitar tag necesita_humano",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración inactividad').first().json.MANYCHAT_API_URL }}/fb/subscriber/addTagByName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Preparar reactivación').item.json.subscriber_id_api, tag_name: 'en_conversacion' }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "77290e63-af19-4fff-a43b-a880f828fcfb",
+      "name": "Poner tag en_conversacion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1740,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upd AS (\n  UPDATE conversaciones SET\n    bot_activo = true,\n    reactivado_at = now(),\n    estado = CASE WHEN estado = 'necesita_humano' THEN 'en_conversacion' ELSE estado END\n  WHERE subscriber_id = $1\n  RETURNING subscriber_id, estado\n), ev AS (\n  INSERT INTO eventos_conversacion (subscriber_id, tipo, estado, detalle)\n  SELECT subscriber_id, 'reactivacion', estado,\n         jsonb_build_object('automatica', true, 'horas', $2::int, 'ya_estaba_activo_en_manychat', $3::boolean)\n  FROM upd\n  RETURNING id\n)\nSELECT $1::text AS subscriber_id, (SELECT count(*) FROM ev)::int AS registrado;",
+        "options": {
+          "queryReplacement": "={{ [ $('Preparar reactivación').item.json.subscriber_id, $('Configuración inactividad').first().json.HORAS_REACTIVACION_BOT, !$('Preparar reactivación').item.json.sigue_apagado ] }}"
+        }
+      },
+      "id": "813e3828-86eb-43ec-aee5-fa39fd41bb17",
+      "name": "Guardar reactivación en Postgres",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1960,
+        520
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "otorminPostgres",
+          "name": "Postgres Otormín"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cada 1 hora": {
+      "main": [
+        [
+          {
+            "node": "Configuración inactividad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuración inactividad": {
+      "main": [
+        [
+          {
+            "node": "Buscar clientes sin respuesta",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Buscar bots apagados vencidos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar clientes sin respuesta": {
+      "main": [
+        [
+          {
+            "node": "Marcar sin_respuesta en ManyChat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar sin_respuesta en ManyChat": {
+      "main": [
+        [
+          {
+            "node": "Quitar tag del estado anterior",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quitar tag del estado anterior": {
+      "main": [
+        [
+          {
+            "node": "Poner tag sin_respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poner tag sin_respuesta": {
+      "main": [
+        [
+          {
+            "node": "Guardar sin_respuesta en Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar sin_respuesta en Postgres": {
+      "main": [
+        [
+          {
+            "node": "¿Mandar plantilla de seguimiento?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Mandar plantilla de seguimiento?": {
+      "main": [
+        [
+          {
+            "node": "Enviar plantilla de seguimiento (flow)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar plantilla de seguimiento (flow)": {
+      "main": [
+        [
+          {
+            "node": "Registrar seguimiento enviado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar bots apagados vencidos": {
+      "main": [
+        [
+          {
+            "node": "Leer bot_activo en ManyChat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer bot_activo en ManyChat": {
+      "main": [
+        [
+          {
+            "node": "Preparar reactivación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar reactivación": {
+      "main": [
+        [
+          {
+            "node": "¿Sigue apagado en ManyChat?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Sigue apagado en ManyChat?": {
+      "main": [
+        [
+          {
+            "node": "Reactivar bot en ManyChat",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar reactivación en Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reactivar bot en ManyChat": {
+      "main": [
+        [
+          {
+            "node": "¿Estaba en necesita_humano?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Estaba en necesita_humano?": {
+      "main": [
+        [
+          {
+            "node": "Quitar tag necesita_humano",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar reactivación en Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quitar tag necesita_humano": {
+      "main": [
+        [
+          {
+            "node": "Poner tag en_conversacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poner tag en_conversacion": {
+      "main": [
+        [
+          {
+            "node": "Guardar reactivación en Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Montevideo",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

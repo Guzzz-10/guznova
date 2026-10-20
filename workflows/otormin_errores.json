@@ -1,0 +1,816 @@
+{
+  "name": "Otormín - Errores (aviso al admin)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Workflow de errores\nSe configura como **Error Workflow** del bot y del chequeo de inactividad (Settings del workflow → Error workflow).\n1. Avisa al admin por **email** (y opcional por WhatsApp vía ManyChat, solo llega si el admin tiene la ventana de 24 h abierta).\n2. Si el error fue atendiendo a un cliente y todavía no se le respondió: **mensaje de respaldo + derivación a humano** (bot_activo = no, tag necesita_humano, flow de aviso). Máximo un respaldo cada 10 minutos por cliente.",
+        "height": 280,
+        "width": 1500,
+        "color": 3
+      },
+      "id": "61aca509-073b-40e2-a8a5-9d81e83f3acf",
+      "name": "Nota: errores",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -320,
+        -200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "bdfcdb7e-97ed-4096-a4b5-a824aeebac5e",
+      "name": "Error en un workflow",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "813fdb2c-0e97-41f3-a039-b28ceddb51ac",
+              "name": "EMAIL_ADMIN",
+              "value": "COMPLETAR",
+              "type": "string"
+            },
+            {
+              "id": "3e662c6e-1de1-4634-a78e-88b6be4dbaa3",
+              "name": "EMAIL_REMITENTE",
+              "value": "COMPLETAR",
+              "type": "string"
+            },
+            {
+              "id": "7a2d1e08-a81d-45b5-a630-f25972df1e20",
+              "name": "ADMIN_SUBSCRIBER_ID",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "04889701-83e7-4a4f-a7ca-405bdfc7e7eb",
+              "name": "MANYCHAT_API_URL",
+              "value": "https://api.manychat.com",
+              "type": "string"
+            },
+            {
+              "id": "315a9cb3-7d6b-44fa-a2e4-5465dc0f2141",
+              "name": "FLOW_NOTIFICAR_HUMANO",
+              "value": "COMPLETAR",
+              "type": "string"
+            },
+            {
+              "id": "12bd256e-a595-4d7a-a9ce-994ca12fa608",
+              "name": "NOMBRE_WORKFLOW_BOT",
+              "value": "Otormín - Bot WhatsApp (ManyChat)",
+              "type": "string"
+            },
+            {
+              "id": "9ce4131b-0a15-4711-ae6d-ea523dbc33d2",
+              "name": "RESPALDO_AL_CLIENTE",
+              "value": "si",
+              "type": "string"
+            },
+            {
+              "id": "e92f2cb4-39fb-455f-aa5b-09166dcf5d96",
+              "name": "MENSAJE_RESPALDO",
+              "value": "¡Perdón! Tuve un problema para responderte por acá. Ya le pasé tu consulta a un asesor de Otormín y te escribe enseguida.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d8de1ca8-d968-4ede-a485-10b694364a10",
+      "name": "Configuración de avisos",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Arma el aviso para el administrador con los datos del error\nconst e = $('Error en un workflow').first().json;\nconst wf = e.workflow || {};\nconst ex = e.execution || {};\nconst trig = e.trigger || {};\nconst err = ex.error || trig.error || {};\nconst ahora = $now.setZone('America/Montevideo').toFormat('dd/LL/yyyy HH:mm');\nconst detalleError = err.message || err.description || JSON.stringify(err).slice(0, 500);\nconst ultimoNodo = ex.lastNodeExecuted || err.node?.name || trig.node?.name || '';\n\nconst asunto = `Bot Otormín: error en \"${wf.name || 'workflow'}\"`;\nconst texto = [\n  `Se produjo un error en n8n (${ahora}).`,\n  '',\n  `Workflow: ${wf.name || '-'} (id ${wf.id || '-'})`,\n  `Ejecución: ${ex.id || '-'} ${ex.url || ''}`,\n  `Último nodo: ${ultimoNodo || '-'}`,\n  `Error: ${detalleError}`,\n  '',\n  'Si el error fue con un cliente, el bot le manda un mensaje de respaldo y lo deriva a un asesor (tag necesita_humano).',\n].join('\\n');\n\nreturn [{\n  json: {\n    asunto,\n    texto,\n    texto_whatsapp: `⚠️ ${asunto}\\nÚltimo nodo: ${ultimoNodo || '-'}\\nError: ${String(detalleError).slice(0, 300)}`,\n    workflow_nombre: wf.name || '',\n    execution_id: ex.id ? String(ex.id) : '',\n    ultimo_nodo: ultimoNodo,\n    error: String(detalleError).slice(0, 500),\n  },\n}];\n"
+      },
+      "id": "c0f59b6d-5721-49aa-a1aa-8dd0f98cd4e3",
+      "name": "Armar aviso",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $('Configuración de avisos').first().json.EMAIL_REMITENTE }}",
+        "toEmail": "={{ $('Configuración de avisos').first().json.EMAIL_ADMIN }}",
+        "subject": "={{ $json.asunto }}",
+        "emailFormat": "text",
+        "text": "={{ $json.texto }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "63e26ac8-7910-4da6-a2de-fcfbfd9d5315",
+      "name": "Enviar email al admin",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        420,
+        100
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "otorminSmtp",
+          "name": "SMTP avisos Otormín"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7af58ae6-75a7-4958-ab8b-644b3b441836",
+              "leftValue": "={{ $('Configuración de avisos').first().json.ADMIN_SUBSCRIBER_ID }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "364f37fb-908a-4567-a4a6-26892034ba48",
+      "name": "¿Avisar al admin por WhatsApp?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/sending/sendContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Configuración de avisos').first().json.ADMIN_SUBSCRIBER_ID, data: { version: 'v2', content: { type: 'whatsapp', messages: [ { type: 'text', text: $('Armar aviso').first().json.texto_whatsapp } ] } } }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "b2f16a59-510f-4bc5-a308-ad72eddc3ba8",
+      "name": "Avisar al admin por WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7605a764-0851-4442-a153-37de1d215bee",
+              "leftValue": "={{ $json.workflow_nombre }}",
+              "rightValue": "={{ $('Configuración de avisos').first().json.NOMBRE_WORKFLOW_BOT }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "9b5ccd15-f8b0-4b56-a593-faa352206725",
+              "leftValue": "={{ $('Configuración de avisos').first().json.RESPALDO_AL_CLIENTE }}",
+              "rightValue": "si",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "e07c46d1-2aab-4a99-a3ab-0ba2316fe1cb",
+              "leftValue": "={{ $json.execution_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bc842d8e-1fc9-4574-a0fa-9e7f7d50a665",
+      "name": "¿Falló atendiendo a un cliente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        420,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "execution",
+        "operation": "get",
+        "executionId": "={{ $('Armar aviso').first().json.execution_id }}",
+        "options": {
+          "activeWorkflows": true
+        },
+        "requestOptions": {}
+      },
+      "id": "446ef667-69c6-4ddc-a9f7-ababe575cd83",
+      "name": "Leer la ejecución fallida",
+      "type": "n8n-nodes-base.n8n",
+      "typeVersion": 1,
+      "position": [
+        640,
+        520
+      ],
+      "credentials": {
+        "n8nApi": {
+          "id": "otorminN8nApi",
+          "name": "n8n API (errores)"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Busca en la ejecución fallida a qué cliente había que responderle y decide\n// si corresponde mandarle el mensaje de respaldo (nunca dejarlo sin respuesta).\nconst ex = $input.first().json || {};\nconst aviso = $('Armar aviso').first().json;\n\nlet data = ex.data;\nif (typeof data === 'string') { try { data = JSON.parse(data); } catch (_) { data = null; } }\nconst runData = data?.resultData?.runData || {};\n\nconst corrio = (n) => Array.isArray(runData[n]) && runData[n].length > 0;\nconst salida = (n) => runData[n]?.[0]?.data?.main;\nconst primerItem = (n) => salida(n)?.[0]?.[0]?.json;\n// true si el IF mandó todo por la rama \"false\"\nconst salioPorFalse = (n) => {\n  const m = salida(n);\n  return Array.isArray(m) && !(m[0]?.length) && (m[1]?.length > 0);\n};\n\nconst entrada = primerItem('Normalizar entrada') || {};\nlet motivoSalteo = '';\nif (!entrada.subscriber_id) motivoSalteo = 'no se encontró el contacto en la ejecución';\nelse if (entrada.bot_activo === false) motivoSalteo = 'el bot estaba apagado (lo atiende un humano)';\nelse if (corrio('Enviar mensaje 1')) motivoSalteo = 'el cliente ya había recibido la respuesta';\nelse if (salioPorFalse('¿Es un mensaje nuevo?')) motivoSalteo = 'era un mensaje repetido';\nelse if (salioPorFalse('¿Es el último mensaje?')) motivoSalteo = 'otro mensaje del mismo cliente seguía la conversación';\nelse if (salioPorFalse('¿Sigue activo el bot?')) motivoSalteo = 'un humano ya había tomado el chat';\n\nconst sid = String(entrada.subscriber_id || '');\nreturn [{\n  json: {\n    responder: !motivoSalteo,\n    motivo_salteo: motivoSalteo,\n    subscriber_id: sid,\n    subscriber_id_api: /^\\d{1,15}$/.test(sid) ? Number(sid) : sid,\n    ultimo_nodo: aviso.ultimo_nodo,\n    error: aviso.error,\n    execution_id: aviso.execution_id,\n  },\n}];\n"
+      },
+      "id": "659936d7-6178-4fed-a944-2676f71f6702",
+      "name": "Buscar al cliente afectado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d186f3c8-4170-43a1-a34b-47c9eaf37148",
+              "leftValue": "={{ $json.responder }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "01c83f88-98a2-477e-abce-343779cbc59a",
+      "name": "¿Hay que responderle?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1080,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH previo AS (\n  SELECT EXISTS (\n    SELECT 1 FROM eventos_conversacion\n    WHERE subscriber_id = $1 AND tipo = 'error'\n      AND (detalle->>'respaldo_enviado')::boolean\n      AND created_at > now() - interval '10 minutes'\n  ) AS ya_avisado\n), actual AS (\n  SELECT estado FROM conversaciones WHERE subscriber_id = $1\n), ev AS (\n  INSERT INTO eventos_conversacion (subscriber_id, tipo, estado, detalle)\n  SELECT $1, 'error', 'necesita_humano',\n         jsonb_build_object('nodo', $2::text, 'error', $3::text, 'ejecucion', $4::text,\n                            'respaldo_enviado', NOT (SELECT ya_avisado FROM previo))\n  WHERE EXISTS (SELECT 1 FROM actual)\n  RETURNING id\n), upd AS (\n  UPDATE conversaciones SET\n    bot_activo = false, derivado_at = now(), estado = 'necesita_humano',\n    motivo_derivacion = 'Falla técnica del bot: revisar el chat y responder al cliente'\n  WHERE subscriber_id = $1 AND NOT (SELECT ya_avisado FROM previo)\n  RETURNING subscriber_id\n)\nSELECT (SELECT ya_avisado FROM previo) AS ya_avisado,\n       COALESCE((SELECT estado FROM actual), '') AS estado_anterior,\n       (SELECT count(*) FROM ev)::int AS registrado;",
+        "options": {
+          "queryReplacement": "={{ [ $('Buscar al cliente afectado').first().json.subscriber_id, $('Buscar al cliente afectado').first().json.ultimo_nodo || '', $('Buscar al cliente afectado').first().json.error || '', $('Buscar al cliente afectado').first().json.execution_id || '' ] }}"
+        }
+      },
+      "id": "54b533ad-1ba2-4866-a12a-f3ee43f0c8db",
+      "name": "Registrar error y evitar duplicados",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1300,
+        520
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "otorminPostgres",
+          "name": "Postgres Otormín"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9182f489-f06a-4015-a00c-11d71a27cf3b",
+              "leftValue": "={{ $json.ya_avisado }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d052833e-b41f-45e0-a285-0c70c7e2252f",
+      "name": "¿Primer aviso en 10 minutos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1520,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/subscriber/setCustomFieldByName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Buscar al cliente afectado').first().json.subscriber_id_api, field_name: 'bot_activo', field_value: 'no' }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "39721ccb-f5fd-42b8-a77a-e98edd138006",
+      "name": "Apagar bot (respaldo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1740,
+        520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/subscriber/setCustomFields",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Buscar al cliente afectado').first().json.subscriber_id_api, fields: [ { field_name: 'estado_conversacion', field_value: 'necesita_humano' }, { field_name: 'motivo_derivacion', field_value: 'Falla técnica del bot: revisar el chat y responder al cliente' } ] }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "3cd98be4-75c0-4de6-a600-0632fb756a8b",
+      "name": "Guardar estado y motivo (respaldo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1960,
+        520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/subscriber/removeTagByName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Buscar al cliente afectado').first().json.subscriber_id_api, tag_name: $('Registrar error y evitar duplicados').first().json.estado_anterior || 'nuevo' }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "ffdbc3f0-cfa8-49c7-a089-186ee0d266c3",
+      "name": "Quitar tag anterior (respaldo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2180,
+        520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/subscriber/addTagByName",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Buscar al cliente afectado').first().json.subscriber_id_api, tag_name: 'necesita_humano' }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "2d34f236-c79f-49b1-abc6-32706001fdf1",
+      "name": "Poner tag necesita_humano (respaldo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/sending/sendFlow",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Buscar al cliente afectado').first().json.subscriber_id_api, flow_ns: $('Configuración de avisos').first().json.FLOW_NOTIFICAR_HUMANO }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "46d4eed7-72fd-4f2e-aa43-d4de3ec61af6",
+      "name": "Notificar al equipo (respaldo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2620,
+        520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuración de avisos').first().json.MANYCHAT_API_URL }}/fb/sending/sendContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subscriber_id: $('Buscar al cliente afectado').first().json.subscriber_id_api, data: { version: 'v2', content: { type: 'whatsapp', messages: [ { type: 'text', text: $('Configuración de avisos').first().json.MENSAJE_RESPALDO } ] } } }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "0e6114dd-ad4e-4432-a081-4ca39bf93466",
+      "name": "Mensaje de respaldo al cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2840,
+        520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "otorminManychatApi",
+          "name": "ManyChat API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1500,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error en un workflow": {
+      "main": [
+        [
+          {
+            "node": "Configuración de avisos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuración de avisos": {
+      "main": [
+        [
+          {
+            "node": "Armar aviso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar aviso": {
+      "main": [
+        [
+          {
+            "node": "Enviar email al admin",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "¿Avisar al admin por WhatsApp?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "¿Falló atendiendo a un cliente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Avisar al admin por WhatsApp?": {
+      "main": [
+        [
+          {
+            "node": "Avisar al admin por WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Falló atendiendo a un cliente?": {
+      "main": [
+        [
+          {
+            "node": "Leer la ejecución fallida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer la ejecución fallida": {
+      "main": [
+        [
+          {
+            "node": "Buscar al cliente afectado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar al cliente afectado": {
+      "main": [
+        [
+          {
+            "node": "¿Hay que responderle?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay que responderle?": {
+      "main": [
+        [
+          {
+            "node": "Registrar error y evitar duplicados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar error y evitar duplicados": {
+      "main": [
+        [
+          {
+            "node": "¿Primer aviso en 10 minutos?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Primer aviso en 10 minutos?": {
+      "main": [
+        [
+          {
+            "node": "Apagar bot (respaldo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apagar bot (respaldo)": {
+      "main": [
+        [
+          {
+            "node": "Guardar estado y motivo (respaldo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar estado y motivo (respaldo)": {
+      "main": [
+        [
+          {
+            "node": "Quitar tag anterior (respaldo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quitar tag anterior (respaldo)": {
+      "main": [
+        [
+          {
+            "node": "Poner tag necesita_humano (respaldo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poner tag necesita_humano (respaldo)": {
+      "main": [
+        [
+          {
+            "node": "Notificar al equipo (respaldo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notificar al equipo (respaldo)": {
+      "main": [
+        [
+          {
+            "node": "Mensaje de respaldo al cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Montevideo",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
