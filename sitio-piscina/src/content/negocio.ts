@@ -12,7 +12,7 @@ export const negocioPorDefecto: DatosNegocio = {
   pais: "Uruguay",
   direccion: "Av. del Agua 1234",
   codigoPostal: "11300",
-  telefono: "+598 2 000 0000",
+  telefono: "+598 99 926 046",
   email: "hola@aquazul.com.uy",
   anioFundacion: 2011,
   logoUrl: null,
@@ -51,7 +51,7 @@ export const contactoPorDefecto: ContenidoContacto = {
 
 export const whatsappPorDefecto: ContenidoWhatsApp = {
   // Solo números, con código de país (598...). Reemplazalo por el real.
-  numero: process.env.NEXT_PUBLIC_WHATSAPP || "59800000000",
+  numero: process.env.NEXT_PUBLIC_WHATSAPP || "59899926046",
   mensajeGeneral: "¡Hola! Quería hacerles una consulta 😊",
   temas: [
     { label: "Horarios", emoji: "🕒", mensaje: "¡Hola! Quería consultar los horarios de apertura de las piscinas." },
